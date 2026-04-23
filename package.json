@@ -1,0 +1,37 @@
+{
+  "name": "vibe-flow-cli",
+  "version": "0.1.0",
+  "description": "Jira-driven step-based vibe coding workflow CLI",
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "bin": {
+    "vibe": "./dist/cli/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --import tsx ./src/cli/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "fs-extra": "^11.3.0",
+    "ink": "^6.2.3",
+    "pino": "^9.7.0",
+    "react": "^19.1.1",
+    "simple-git": "^3.28.0",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.15.3",
+    "@types/react": "^19.1.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}
