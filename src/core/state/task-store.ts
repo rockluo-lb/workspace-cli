@@ -87,6 +87,15 @@ export class FileTaskStore implements TaskStore {
 		return filePath;
 	}
 
+	async clearVibeDir(): Promise<boolean> {
+		if (!(await fs.pathExists(this.vibeDir))) {
+			return false;
+		}
+
+		await fs.remove(this.vibeDir);
+		return true;
+	}
+
 	private async readJson<T>(jiraKey: string, fileName: string): Promise<T | null> {
 		const filePath = path.join(this.taskDir(jiraKey), fileName);
 		if (!(await fs.pathExists(filePath))) {

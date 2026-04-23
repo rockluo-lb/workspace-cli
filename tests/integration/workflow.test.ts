@@ -38,4 +38,18 @@ describe('workflow integration', () => {
 		expect(resume.pendingSteps).toContain(2);
 		expect(resume.nextAction).toContain('vibe code CRMCN-1234 --step 2');
 	});
+
+	it('creates the task branch from the current branch by default', async () => {
+		const rootDir = await createTempDir('vibe-workflow-branch-base-');
+		await initGitRepo(rootDir);
+		run('git', ['checkout', '-b', 'epic/CRMCN-11269'], rootDir);
+
+		const app = await createApp(rootDir);
+		const start = await app.orchestrator.startTask('CRMCN-5678');
+
+		expect(start.initialBranch).toBe('epic/CRMCN-11269');
+		expect(start.baseBranch).toBe('epic/CRMCN-11269');
+		expect(start.currentBranch).toBe('feat/CRMCN-5678');
+		expect(run('git', ['branch', '--show-current'], rootDir)).toBe('feat/CRMCN-5678');
+	});
 });

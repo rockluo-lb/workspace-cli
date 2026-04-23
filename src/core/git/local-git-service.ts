@@ -4,7 +4,8 @@ import { AppError } from '../shared/errors.js';
 import type { LocalGitService } from '../shared/types.js';
 
 function isOperationalFile(file: string): boolean {
-	return file.replace(/\\/g, '/').startsWith('.vibe/');
+	const normalized = file.replace(/\\/g, '/');
+	return normalized.startsWith('.vibe/') || normalized.startsWith('.cursor/');
 }
 
 function formatDirtyWorktreeMessage(files: string[]): string {

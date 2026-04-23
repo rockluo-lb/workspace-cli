@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MockAIProvider } from '../../src/core/planning/mock-ai-provider.js';
 import { FigmaMcpProvider } from '../../src/core/tools/figma/figma-mcp-provider.js';
 import { GitHubMcpProvider } from '../../src/core/tools/github/github-mcp-provider.js';
+import { AtlassianMcpProvider } from '../../src/core/tools/jira/atlassian-mcp-provider.js';
 import { AtlassianPluginProvider } from '../../src/core/tools/jira/atlassian-plugin-provider.js';
 
 describe('provider contracts', () => {
@@ -9,6 +10,12 @@ describe('provider contracts', () => {
 		const provider = new AtlassianPluginProvider();
 		const issue = await provider.getIssue('CRMCN-11');
 		expect(issue.key).toBe('CRMCN-11');
+	});
+
+	it('returns synthetic jira context from the mcp provider', async () => {
+		const provider = new AtlassianMcpProvider();
+		const issue = await provider.getIssue('CRMCN-12');
+		expect(issue.key).toBe('CRMCN-12');
 	});
 
 	it('parses figma urls', async () => {
@@ -49,7 +56,7 @@ describe('provider contracts', () => {
 				branchPattern: 'feat/{jiraKey}',
 				commitPattern: 'feat({jiraKey}): {message}',
 				baseBranch: 'main',
-				jira: { provider: 'atlassian-plugin', allowedPrefixes: ['CRMCN'] },
+				jira: { provider: 'auto', fallbackProvider: 'atlassian-plugin', allowedPrefixes: ['CRMCN'] },
 				figma: { provider: 'figma-mcp' },
 				github: { provider: 'github-mcp' },
 				planning: { minSteps: 3, maxSteps: 7, maxFilesPerStep: 6 },

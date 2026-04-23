@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import process from 'node:process';
 import { AppError, toAppError } from '../core/shared/errors.js';
 import { registerAbortCommand } from './commands/abort.js';
+import { registerCleanCommand } from './commands/clean.js';
 import { registerCodeCommand } from './commands/code.js';
 import { registerCommitCommand } from './commands/commit.js';
 import { registerContextCommand } from './commands/context.js';
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
 	registerPrCommand(program, getApp);
 	registerResumeCommand(program, getApp);
 	registerAbortCommand(program, getApp);
+	registerCleanCommand(program, getApp);
 
 	await program.parseAsync(process.argv);
 }

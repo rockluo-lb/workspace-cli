@@ -20,4 +20,26 @@ describe('task store', () => {
 		expect(progress?.branch).toBe('feat/CRMCN-1');
 		expect(await fs.pathExists(path.join(rootDir, '.vibe/tasks/CRMCN-1/plan.md'))).toBe(true);
 	});
+
+	it('clears the entire .vibe directory', async () => {
+		const rootDir = await createTempDir('vibe-store-clean-');
+		const store = new FileTaskStore(rootDir);
+		await store.saveProgress('CRMCN-1', {
+			jiraKey: 'CRMCN-1',
+			branch: 'feat/CRMCN-1',
+			completedSteps: [],
+			commits: [],
+			status: 'initialized',
+		});
+
+		await expect(store.clearVibeDir()).resolves.toBe(true);
+		await expect(fs.pathExists(path.join(rootDir, '.vibe'))).resolves.toBe(false);
+	});
+
+	it('returns false when .vibe does not exist', async () => {
+		const rootDir = await createTempDir('vibe-store-empty-');
+		const store = new FileTaskStore(rootDir);
+
+		await expect(store.clearVibeDir()).resolves.toBe(false);
+	});
 });

@@ -3,6 +3,9 @@ export type WorkspaceType = 'single' | 'monorepo';
 export type LinkType = 'jira' | 'confluence' | 'figma' | 'prototype' | 'api-doc' | 'other';
 export type LinkSource = 'description' | 'remoteLink' | 'comment' | 'manual';
 export type FigmaMode = 'file' | 'design' | 'proto';
+export type JiraProviderMode = 'auto' | 'atlassian-mcp' | 'atlassian-plugin';
+export type FigmaProviderMode = 'figma-mcp' | 'figma-plugin';
+export type GitHubProviderMode = 'github-mcp' | 'github-plugin';
 export type PlanStepStatus = 'pending' | 'coded' | 'verified' | 'committed' | 'failed';
 export type TaskStatus =
 	| 'initialized'
@@ -219,16 +222,17 @@ export interface VibeConfig {
 	commitPattern: string;
 	baseBranch: string;
 	jira: {
-		provider: string;
+		provider: JiraProviderMode;
+		fallbackProvider?: Exclude<JiraProviderMode, 'auto'>;
 		allowedPrefixes: string[];
 	};
 	figma: {
-		provider: string;
-		fallbackProvider?: string;
+		provider: FigmaProviderMode;
+		fallbackProvider?: FigmaProviderMode;
 	};
 	github: {
-		provider: string;
-		fallbackProvider?: string;
+		provider: GitHubProviderMode;
+		fallbackProvider?: GitHubProviderMode;
 		repository?: string;
 	};
 	planning: {
@@ -396,6 +400,7 @@ export interface TaskStore {
 	writeTaskFile(jiraKey: string, name: string, content: string): Promise<string>;
 	writeReport(jiraKey: string, name: string, content: string): Promise<string>;
 	appendLog(jiraKey: string, name: string, line: string): Promise<string>;
+	clearVibeDir(): Promise<boolean>;
 }
 
 export interface WorkflowOrchestrator {

@@ -23,4 +23,16 @@ describe('git service', () => {
 			expect((error as Error).message).toContain('Commit, stash, or discard');
 		}
 	});
+
+	it('ignores .cursor files when checking worktree cleanliness and diffs', async () => {
+		const rootDir = await createTempDir('vibe-git-service-cursor-');
+		await initGitRepo(rootDir);
+		await fs.ensureDir(path.join(rootDir, '.cursor'));
+		await fs.writeFile(path.join(rootDir, '.cursor', 'state.json'), '{"ok":true}', 'utf8');
+
+		const service = new SimpleGitService(rootDir);
+
+		await expect(service.ensureCleanWorktree()).resolves.toBeUndefined();
+		await expect(service.getDiffFiles()).resolves.toEqual([]);
+	});
 });

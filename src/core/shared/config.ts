@@ -8,16 +8,17 @@ const configSchema = z.object({
 	commitPattern: z.string().default('feat({jiraKey}): {message}'),
 	baseBranch: z.string().default('main'),
 	jira: z.object({
-		provider: z.string().default('atlassian-plugin'),
+		provider: z.enum(['auto', 'atlassian-mcp', 'atlassian-plugin']).default('auto'),
+		fallbackProvider: z.enum(['atlassian-mcp', 'atlassian-plugin']).optional(),
 		allowedPrefixes: z.array(z.string()).default(['CRMCN']),
 	}),
 	figma: z.object({
-		provider: z.string().default('figma-mcp'),
-		fallbackProvider: z.string().optional(),
+		provider: z.enum(['figma-mcp', 'figma-plugin']).default('figma-mcp'),
+		fallbackProvider: z.enum(['figma-mcp', 'figma-plugin']).optional(),
 	}),
 	github: z.object({
-		provider: z.string().default('github-mcp'),
-		fallbackProvider: z.string().optional(),
+		provider: z.enum(['github-mcp', 'github-plugin']).default('github-mcp'),
+		fallbackProvider: z.enum(['github-mcp', 'github-plugin']).optional(),
 		repository: z.string().optional(),
 	}),
 	planning: z.object({
@@ -32,7 +33,7 @@ const configSchema = z.object({
 });
 
 export const defaultConfig: VibeConfig = configSchema.parse({
-	jira: {},
+	jira: { fallbackProvider: 'atlassian-plugin' },
 	figma: {},
 	github: {},
 	planning: {},

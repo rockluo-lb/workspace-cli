@@ -80,6 +80,8 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		assertValidJiraKey(jiraKey);
 		await this.deps.gitService.ensureCleanWorktree();
 		const initialBranch = await this.deps.gitService.getCurrentBranch();
+		const fallbackBaseBranch = this.deps.config.baseBranch;
+		const baseBranch = initialBranch || fallbackBaseBranch;
 
 		const issue = await this.deps.tools.jira.getIssue(jiraKey);
 		const directLinks = await this.deps.tools.jira.getIssueLinks(jiraKey);
@@ -102,9 +104,10 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			}
 		}
 
-		const baseBranch = this.deps.config.baseBranch;
-		await this.deps.gitService.checkoutBaseBranch(baseBranch);
-		await this.deps.gitService.pullBaseBranch(baseBranch);
+		if (!initialBranch) {
+			await this.deps.gitService.checkoutBaseBranch(baseBranch);
+			await this.deps.gitService.pullBaseBranch(baseBranch);
+		}
 		const branch = renderBranchName(jiraKey, this.deps.config.branchPattern);
 		await this.deps.gitService.createBranch(branch);
 		const currentBranch = await this.deps.gitService.getCurrentBranch();

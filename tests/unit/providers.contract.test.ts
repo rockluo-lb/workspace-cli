@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FigmaMcpProvider } from '../../src/core/tools/figma/figma-mcp-provider.js';
 import { GitHubMcpProvider } from '../../src/core/tools/github/github-mcp-provider.js';
+import { AtlassianMcpProvider } from '../../src/core/tools/jira/atlassian-mcp-provider.js';
 import { AtlassianPluginProvider } from '../../src/core/tools/jira/atlassian-plugin-provider.js';
 
 describe('provider contracts', () => {
@@ -8,6 +9,13 @@ describe('provider contracts', () => {
 		const provider = new AtlassianPluginProvider();
 		const issue = await provider.getIssue('CRMCN-1');
 		expect(issue.key).toBe('CRMCN-1');
+		expect(Array.isArray(issue.acceptanceCriteria)).toBe(true);
+	});
+
+	it('returns Jira issue context from the mcp provider', async () => {
+		const provider = new AtlassianMcpProvider();
+		const issue = await provider.getIssue('CRMCN-2');
+		expect(issue.key).toBe('CRMCN-2');
 		expect(Array.isArray(issue.acceptanceCriteria)).toBe(true);
 	});
 
