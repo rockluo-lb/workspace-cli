@@ -234,6 +234,7 @@ export interface VibeConfig {
 		provider: GitHubProviderMode;
 		fallbackProvider?: GitHubProviderMode;
 		repository?: string;
+		reviewers?: string[];
 	};
 	planning: {
 		minSteps: number;
@@ -304,6 +305,7 @@ export interface PRBuildInput {
 	links: ExternalLink[];
 	plan: ExecutionPlan;
 	progress: ProgressState;
+	reviewers: string[];
 	verifyResults?: CommandResult[];
 	prContext?: PRContext;
 }

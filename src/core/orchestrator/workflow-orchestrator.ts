@@ -421,6 +421,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			links,
 			plan,
 			progress,
+			reviewers: this.deps.config.github.reviewers ?? [],
 			prContext,
 		});
 		const reportPath = await this.deps.taskStore.writeReport(jiraKey, 'pr.md', content);

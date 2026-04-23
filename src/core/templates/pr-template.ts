@@ -1,5 +1,8 @@
 import type { PRBuildInput } from '../shared/types.js';
 
+const VIBE_CLI_AI_DISCLOSURE =
+	'> This PR draft was generated with vibe-cli AI assistance. Please review all changes carefully before merging.';
+
 export function renderPrMarkdown(input: PRBuildInput): string {
 	const links =
 		input.links.length > 0
@@ -20,6 +23,8 @@ export function renderPrMarkdown(input: PRBuildInput): string {
 					)
 					.join('\n')
 			: '- Not run';
+	const reviewers =
+		input.reviewers.length > 0 ? input.reviewers.map((reviewer) => `- @${reviewer}`).join('\n') : '- None';
 
 	return `# ${input.issue.summary}
 
@@ -40,9 +45,15 @@ ${commits}
 ## Verification
 ${verify}
 
+## Reviewers
+${reviewers}
+
 ## PR Context
 - Repository: ${input.prContext?.repositoryFullName ?? 'unknown'}
 - Branch: ${input.prContext?.branchName ?? input.plan.branch}
 - Compare: ${input.prContext?.compareUrl ?? 'n/a'}
+
+## AI Disclosure
+${VIBE_CLI_AI_DISCLOSURE}
 `;
 }

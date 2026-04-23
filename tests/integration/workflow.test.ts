@@ -32,6 +32,7 @@ describe('workflow integration', () => {
 
 		const pr = await app.orchestrator.preparePR('CRMCN-1234');
 		expect(pr.content).toContain('CRMCN-1234');
+		expect(pr.content).toContain('This PR draft was generated with vibe-cli AI assistance.');
 		expect(await fs.pathExists(path.join(rootDir, '.vibe/tasks/CRMCN-1234/reports/pr.md'))).toBe(true);
 
 		const resume = await app.orchestrator.resumeTask('CRMCN-1234');

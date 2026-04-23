@@ -3,6 +3,22 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { VibeConfig } from './types.js';
 
+const REPOSITORY_REVIEWER_PRESETS: Record<string, string[]> = {
+	'lifebyte-systems/CRM-Sales-Frontend': ['jynxioxiao-lb', 'colinchen-lb'],
+};
+
+function resolveRepositoryReviewers(repository?: string, reviewers?: string[]): string[] | undefined {
+	if (reviewers !== undefined) {
+		return reviewers;
+	}
+
+	if (!repository) {
+		return undefined;
+	}
+
+	return REPOSITORY_REVIEWER_PRESETS[repository];
+}
+
 const configSchema = z.object({
 	branchPattern: z.string().default('feat/{jiraKey}'),
 	commitPattern: z.string().default('feat({jiraKey}): {message}'),
@@ -20,6 +36,7 @@ const configSchema = z.object({
 		provider: z.enum(['github-mcp', 'github-plugin']).default('github-mcp'),
 		fallbackProvider: z.enum(['github-mcp', 'github-plugin']).optional(),
 		repository: z.string().optional(),
+		reviewers: z.array(z.string()).optional(),
 	}),
 	planning: z.object({
 		minSteps: z.number().int().min(1).default(3),
@@ -59,7 +76,11 @@ export async function loadOrCreateConfig(rootDir: string): Promise<VibeConfig> {
 		...raw,
 		jira: { ...defaultConfig.jira, ...raw.jira },
 		figma: { ...defaultConfig.figma, ...raw.figma },
-		github: { ...defaultConfig.github, ...raw.github },
+		github: {
+			...defaultConfig.github,
+			...raw.github,
+			reviewers: resolveRepositoryReviewers(raw.github?.repository, raw.github?.reviewers),
+		},
 		planning: { ...defaultConfig.planning, ...raw.planning },
 		verify: { ...defaultConfig.verify, ...raw.verify },
 	});
