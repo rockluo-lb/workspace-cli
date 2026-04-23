@@ -1,1 +1,1 @@
-export type { JiraProvider } from "../../shared/types.js";
+export type { JiraProvider } from '../../shared/types.js';

@@ -1,11 +1,14 @@
-import { CommandResult, PlanStep } from "../shared/types.js";
+import type { CommandResult, PlanStep } from '../shared/types.js';
 
 export function renderStepReport(step: PlanStep, sections: string[], verifyResults?: CommandResult[]): string {
-  const verify = verifyResults && verifyResults.length > 0
-    ? verifyResults.map((result) => `- \`${result.command}\`: ${result.code === 0 ? "pass" : `fail (${result.code})`}`).join("\n")
-    : "- Not run";
+	const verify =
+		verifyResults && verifyResults.length > 0
+			? verifyResults
+					.map((result) => `- \`${result.command}\`: ${result.code === 0 ? 'pass' : `fail (${result.code})`}`)
+					.join('\n')
+			: '- Not run';
 
-  return `# Step ${step.id} Report
+	return `# Step ${step.id} Report
 
 ## Step
 - Title: ${step.title}
@@ -13,7 +16,7 @@ export function renderStepReport(step: PlanStep, sections: string[], verifyResul
 - Commit: \`${step.commitMessage}\`
 
 ## Notes
-${sections.map((item) => `- ${item}`).join("\n")}
+${sections.map((item) => `- ${item}`).join('\n')}
 
 ## Verification
 ${verify}
@@ -21,8 +24,8 @@ ${verify}
 }
 
 export function renderVerifyReport(results: CommandResult[]): string {
-  return `# Task Verification
+	return `# Task Verification
 
-${results.map((result) => `- \`${result.command}\`: ${result.code === 0 ? "pass" : `fail (${result.code})`}`).join("\n")}
+${results.map((result) => `- \`${result.command}\`: ${result.code === 0 ? 'pass' : `fail (${result.code})`}`).join('\n')}
 `;
 }

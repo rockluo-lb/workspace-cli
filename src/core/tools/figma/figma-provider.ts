@@ -1,1 +1,1 @@
-export type { FigmaProvider } from "../../shared/types.js";
+export type { FigmaProvider } from '../../shared/types.js';

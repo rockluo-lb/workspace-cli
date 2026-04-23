@@ -1,1 +1,1 @@
-export type { AIProvider } from "../shared/types.js";
+export type { AIProvider } from '../shared/types.js';

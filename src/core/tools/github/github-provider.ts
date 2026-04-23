@@ -1,1 +1,1 @@
-export type { GitHubProvider } from "../../shared/types.js";
+export type { GitHubProvider } from '../../shared/types.js';
