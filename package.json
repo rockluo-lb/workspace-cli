@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "description": "Jira-driven step-based vibe coding workflow CLI",
   "type": "module",
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "pnpm@10.33.1",
   "bin": {
-    "vibe": "./dist/cli/index.js"
+    "vibe": "./dist/src/cli/index.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -22,16 +22,16 @@
     "fs-extra": "^11.3.0",
     "ink": "^6.2.3",
     "pino": "^9.7.0",
-    "react": "^19.1.1",
-    "simple-git": "^3.28.0",
-    "zod": "^3.24.3"
+    "react": "^19.2.5",
+    "simple-git": "^3.36.0",
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^22.15.3",
-    "@types/react": "^19.1.2",
+    "@types/react": "^19.2.14",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.2"
+    "vitest": "4.1.5"
   }
 }

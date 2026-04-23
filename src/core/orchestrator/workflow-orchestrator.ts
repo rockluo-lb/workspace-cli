@@ -78,6 +78,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
   async startTask(jiraKey: string): Promise<StartTaskResult> {
     assertValidJiraKey(jiraKey);
     await this.deps.gitService.ensureCleanWorktree();
+    const initialBranch = await this.deps.gitService.getCurrentBranch();
 
     const issue = await this.deps.tools.jira.getIssue(jiraKey);
     const directLinks = await this.deps.tools.jira.getIssueLinks(jiraKey);
@@ -100,10 +101,12 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
       }
     }
 
-    await this.deps.gitService.checkoutBaseBranch(this.deps.config.baseBranch);
-    await this.deps.gitService.pullBaseBranch(this.deps.config.baseBranch);
+    const baseBranch = this.deps.config.baseBranch;
+    await this.deps.gitService.checkoutBaseBranch(baseBranch);
+    await this.deps.gitService.pullBaseBranch(baseBranch);
     const branch = renderBranchName(jiraKey, this.deps.config.branchPattern);
     await this.deps.gitService.createBranch(branch);
+    const currentBranch = await this.deps.gitService.getCurrentBranch();
 
     await this.deps.taskStore.saveIssue(jiraKey, issue);
     await this.deps.taskStore.saveLinks(jiraKey, links);
@@ -115,11 +118,18 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
       status: "initialized",
     };
     await this.deps.taskStore.saveProgress(jiraKey, progress);
-    await this.deps.taskStore.appendLog(jiraKey, "start.log", `Initialized ${jiraKey} on ${branch}`);
+    await this.deps.taskStore.appendLog(
+      jiraKey,
+      "start.log",
+      `Initialized ${jiraKey} from ${initialBranch} via ${baseBranch} onto ${currentBranch}`,
+    );
 
     return {
       jiraKey,
+      initialBranch,
+      baseBranch,
       branch,
+      currentBranch,
       taskDir: `.vibe/tasks/${jiraKey}`,
       warnings,
     };

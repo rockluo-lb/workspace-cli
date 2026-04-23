@@ -11,7 +11,10 @@ describe("workflow integration", () => {
 
     const app = await createApp(rootDir);
     const start = await app.orchestrator.startTask("CRMCN-1234");
+    expect(start.initialBranch).toBe("main");
+    expect(start.baseBranch).toBe("main");
     expect(start.branch).toBe("feat/CRMCN-1234");
+    expect(start.currentBranch).toBe("feat/CRMCN-1234");
     expect(run("git", ["branch", "--show-current"], rootDir)).toBe("feat/CRMCN-1234");
 
     const plan = await app.orchestrator.generatePlan("CRMCN-1234");

@@ -244,7 +244,10 @@ export interface VibeConfig {
 
 export interface StartTaskResult {
   jiraKey: string;
+  initialBranch: string;
+  baseBranch: string;
   branch: string;
+  currentBranch: string;
   taskDir: string;
   warnings: string[];
 }
