@@ -1,8 +1,5 @@
 import type { PRBuildInput } from '../shared/types.js';
 
-const VIBE_CLI_AI_DISCLOSURE =
-	'> This PR draft was generated with vibe-cli AI assistance. Please review all changes carefully before merging.';
-
 export function renderPrMarkdown(input: PRBuildInput): string {
 	const links =
 		input.links.length > 0
@@ -54,6 +51,6 @@ ${reviewers}
 - Compare: ${input.prContext?.compareUrl ?? 'n/a'}
 
 ## AI Disclosure
-${VIBE_CLI_AI_DISCLOSURE}
+${input.aiDisclosure}
 `;
 }

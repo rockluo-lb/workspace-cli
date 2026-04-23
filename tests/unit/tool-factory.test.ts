@@ -19,6 +19,10 @@ function createConfig(overrides?: Partial<VibeConfig>): VibeConfig {
 			...defaultConfig.github,
 			...overrides?.github,
 		},
+		pr: {
+			...defaultConfig.pr,
+			...overrides?.pr,
+		},
 		planning: {
 			...defaultConfig.planning,
 			...overrides?.planning,

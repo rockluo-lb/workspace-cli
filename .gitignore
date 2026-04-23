@@ -7,3 +7,4 @@ dist/
 worktrees/
 coverage/
 *.log
+.pnpm-store

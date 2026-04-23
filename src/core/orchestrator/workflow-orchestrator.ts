@@ -421,6 +421,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			links,
 			plan,
 			progress,
+			aiDisclosure: this.deps.config.pr.aiDisclosure,
 			reviewers: this.deps.config.github.reviewers ?? [],
 			prContext,
 		});

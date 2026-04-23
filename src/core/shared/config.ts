@@ -3,11 +3,11 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { VibeConfig } from './types.js';
 
-const REPOSITORY_REVIEWER_PRESETS: Record<string, string[]> = {
-	'lifebyte-systems/CRM-Sales-Frontend': ['jynxioxiao-lb', 'colinchen-lb'],
-};
-
-function resolveRepositoryReviewers(repository?: string, reviewers?: string[]): string[] | undefined {
+function resolveRepositoryReviewers(
+	repository?: string,
+	reviewers?: string[],
+	reviewerPresets?: Record<string, string[]>
+): string[] | undefined {
 	if (reviewers !== undefined) {
 		return reviewers;
 	}
@@ -16,7 +16,7 @@ function resolveRepositoryReviewers(repository?: string, reviewers?: string[]): 
 		return undefined;
 	}
 
-	return REPOSITORY_REVIEWER_PRESETS[repository];
+	return reviewerPresets?.[repository];
 }
 
 const configSchema = z.object({
@@ -37,6 +37,14 @@ const configSchema = z.object({
 		fallbackProvider: z.enum(['github-mcp', 'github-plugin']).optional(),
 		repository: z.string().optional(),
 		reviewers: z.array(z.string()).optional(),
+		reviewerPresets: z.record(z.string(), z.array(z.string())).optional(),
+	}),
+	pr: z.object({
+		aiDisclosure: z
+			.string()
+			.default(
+				'> This PR draft was generated with vibe-cli AI assistance. Please review all changes carefully before merging.'
+			),
 	}),
 	planning: z.object({
 		minSteps: z.number().int().min(1).default(3),
@@ -52,7 +60,12 @@ const configSchema = z.object({
 export const defaultConfig: VibeConfig = configSchema.parse({
 	jira: { fallbackProvider: 'atlassian-plugin' },
 	figma: {},
-	github: {},
+	github: {
+		reviewerPresets: {
+			'lifebyte-systems/CRM-Sales-Frontend': ['jynxioxiao-lb', 'colinchen-lb'],
+		},
+	},
+	pr: {},
 	planning: {},
 	verify: {},
 });
@@ -79,12 +92,28 @@ export async function loadOrCreateConfig(rootDir: string): Promise<VibeConfig> {
 		github: {
 			...defaultConfig.github,
 			...raw.github,
-			reviewers: resolveRepositoryReviewers(raw.github?.repository, raw.github?.reviewers),
+			reviewerPresets: {
+				...(defaultConfig.github.reviewerPresets ?? {}),
+				...(raw.github?.reviewerPresets ?? {}),
+			},
 		},
+		pr: { ...defaultConfig.pr, ...raw.pr },
 		planning: { ...defaultConfig.planning, ...raw.planning },
 		verify: { ...defaultConfig.verify, ...raw.verify },
 	});
 
-	await fs.writeJson(configPath, merged, { spaces: 2 });
-	return merged;
+	const normalized = configSchema.parse({
+		...merged,
+		github: {
+			...merged.github,
+			reviewers: resolveRepositoryReviewers(
+				merged.github.repository,
+				merged.github.reviewers,
+				merged.github.reviewerPresets
+			),
+		},
+	});
+
+	await fs.writeJson(configPath, normalized, { spaces: 2 });
+	return normalized;
 }

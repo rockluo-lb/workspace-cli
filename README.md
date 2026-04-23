@@ -20,5 +20,21 @@ Jira-driven, step-based vibe coding workflow CLI.
 - Local git operations stay local.
 - Jira / Confluence / Figma / GitHub are abstracted behind provider interfaces.
 - Jira now supports `auto`, `atlassian-mcp`, and `atlassian-plugin`; `auto` prefers MCP and falls back to plugin.
-- Generated PR drafts include a fixed vibe-cli AI disclosure footer and any configured default reviewers.
+- Dynamic project policy lives in `.vibe/config.json`, including PR AI disclosure text and repository-specific reviewer presets.
 - Task state is stored under `.vibe/tasks/<JIRA_KEY>/`.
+
+## Config Examples
+
+```json
+{
+  "github": {
+    "repository": "lifebyte-systems/CRM-Sales-Frontend",
+    "reviewerPresets": {
+      "lifebyte-systems/CRM-Sales-Frontend": ["jynxioxiao-lb", "colinchen-lb"]
+    }
+  },
+  "pr": {
+    "aiDisclosure": "> This PR draft was generated with vibe-cli AI assistance. Please review all changes carefully before merging."
+  }
+}
+```

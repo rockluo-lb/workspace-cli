@@ -9,6 +9,7 @@ describe('config loading', () => {
 		const rootDir = await createTempDir('vibe-config-');
 		const config = await loadOrCreateConfig(rootDir);
 		expect(config.branchPattern).toBe('feat/{jiraKey}');
+		expect(config.pr.aiDisclosure).toContain('vibe-cli AI assistance');
 		expect(await fs.pathExists(path.join(rootDir, '.vibe', 'config.json'))).toBe(true);
 	});
 
@@ -27,5 +28,29 @@ describe('config loading', () => {
 
 		const config = await loadOrCreateConfig(rootDir);
 		expect(config.github.reviewers).toEqual(['jynxioxiao-lb', 'colinchen-lb']);
+	});
+
+	it('allows overriding reviewer presets and pr disclosure from config', async () => {
+		const rootDir = await createTempDir('vibe-config-dynamic-');
+		await fs.ensureDir(path.join(rootDir, '.vibe'));
+		await fs.writeJson(
+			path.join(rootDir, '.vibe', 'config.json'),
+			{
+				github: {
+					repository: 'example/repo',
+					reviewerPresets: {
+						'example/repo': ['alice', 'bob'],
+					},
+				},
+				pr: {
+					aiDisclosure: 'Custom disclosure.',
+				},
+			},
+			{ spaces: 2 }
+		);
+
+		const config = await loadOrCreateConfig(rootDir);
+		expect(config.github.reviewers).toEqual(['alice', 'bob']);
+		expect(config.pr.aiDisclosure).toBe('Custom disclosure.');
 	});
 });
