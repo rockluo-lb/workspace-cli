@@ -20,8 +20,8 @@ Jira-driven, step-based vibe coding workflow CLI.
 - Local git operations stay local.
 - Jira / Confluence / Figma / GitHub are abstracted behind provider interfaces.
 - Jira now supports `auto`, `atlassian-mcp`, and `atlassian-plugin`; `auto` prefers MCP and falls back to plugin.
-- Dynamic project policy lives in `.vibe/config.json`, including PR AI disclosure text and repository-specific reviewer presets.
-- Task state is stored under `.vibe/tasks/<JIRA_KEY>/`.
+- Dynamic project policy lives in the workspace state directory config, not in the business repo.
+- Task state is stored in a user-level workspace state directory, not under the current project root.
 
 ## Config Examples
 
@@ -38,3 +38,11 @@ Jira-driven, step-based vibe coding workflow CLI.
   }
 }
 ```
+
+By default the workspace state root is:
+
+- macOS: `~/Library/Application Support/vibe-cli/workspaces/...`
+- Linux: `~/.local/state/vibe-cli/workspaces/...`
+- Windows: `%APPDATA%/vibe-cli/workspaces/...`
+
+You can override the base directory with `VIBE_STATE_ROOT`.

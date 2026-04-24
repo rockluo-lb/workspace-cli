@@ -9,7 +9,7 @@ describe('ink renderer', () => {
 			baseBranch: 'latest',
 			branch: 'feat/CRMCN-1234',
 			currentBranch: 'feat/CRMCN-1234',
-			taskDir: '.vibe/tasks/CRMCN-1234',
+			taskDir: '/Users/test/Library/Application Support/vibe-cli/workspaces/demo-123/tasks/CRMCN-1234',
 			warnings: ['partial figma context'],
 		});
 
@@ -22,7 +22,7 @@ describe('ink renderer', () => {
 	it('renders a plan dashboard', () => {
 		const output = renderValueScreen('Generate Plan', {
 			jiraKey: 'CRMCN-1234',
-			reportPath: '.vibe/tasks/CRMCN-1234/plan.md',
+			reportPath: '/Users/test/Library/Application Support/vibe-cli/workspaces/demo-123/tasks/CRMCN-1234/plan.md',
 			plan: {
 				jiraKey: 'CRMCN-1234',
 				branch: 'feat/CRMCN-1234',
@@ -51,7 +51,8 @@ describe('ink renderer', () => {
 	it('renders a context dashboard', () => {
 		const output = renderValueScreen('Build Context', {
 			jiraKey: 'CRMCN-1234',
-			reportPath: '.vibe/tasks/CRMCN-1234/reports/context.md',
+			reportPath:
+				'/Users/test/Library/Application Support/vibe-cli/workspaces/demo-123/tasks/CRMCN-1234/reports/context.md',
 			repoContext: {
 				repoName: 'CRM-Sales-Frontend',
 				packageManager: 'pnpm',
@@ -114,7 +115,8 @@ describe('ink renderer', () => {
 	it('renders a verify dashboard', () => {
 		const output = renderValueScreen('Verify Task', {
 			jiraKey: 'CRMCN-1234',
-			reportPath: '.vibe/tasks/CRMCN-1234/reports/verify-report.md',
+			reportPath:
+				'/Users/test/Library/Application Support/vibe-cli/workspaces/demo-123/tasks/CRMCN-1234/reports/verify-report.md',
 			results: [
 				{ command: 'pnpm lint', code: 0, stdout: '', stderr: '' },
 				{ command: 'pnpm test', code: 1, stdout: '', stderr: 'failed' },
@@ -149,7 +151,8 @@ describe('ink renderer', () => {
 	it('renders a PR dashboard', () => {
 		const output = renderValueScreen('Prepare PR', {
 			jiraKey: 'CRMCN-1234',
-			reportPath: '.vibe/tasks/CRMCN-1234/reports/pr.md',
+			reportPath:
+				'/Users/test/Library/Application Support/vibe-cli/workspaces/demo-123/tasks/CRMCN-1234/reports/pr.md',
 			content: '# Demo PR\n\n## Summary\nLine 1\nLine 2',
 		});
 

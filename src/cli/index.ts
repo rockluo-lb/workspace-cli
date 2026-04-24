@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 	registerPrCommand(program, getApp);
 	registerResumeCommand(program, getApp);
 	registerAbortCommand(program, getApp);
-	registerCleanCommand(program, getApp);
+	registerCleanCommand(program);
 
 	await program.parseAsync(process.argv);
 }

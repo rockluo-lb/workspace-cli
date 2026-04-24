@@ -1,18 +1,22 @@
+import fs from 'fs-extra';
+import { resolveWorkspaceStateDir } from '../../core/shared/state-paths.js';
 import type { Command } from 'commander';
-import type { AppContext } from '../runtime.js';
 import { printValue } from '../runtime.js';
 
-export function registerCleanCommand(program: Command, getApp: () => Promise<AppContext>): void {
+export function registerCleanCommand(program: Command): void {
 	program
 		.command('clean')
-		.description('Delete the local .vibe state directory')
+		.description('Delete the global workspace state directory used by vibe-cli')
 		.action(async () => {
-			const app = await getApp();
-			const removed = await app.taskStore.clearVibeDir();
+			const stateRoot = resolveWorkspaceStateDir(process.cwd());
+			const removed = await fs.pathExists(stateRoot);
+			if (removed) {
+				await fs.remove(stateRoot);
+			}
 			printValue('Clean Workspace', {
-				path: '.vibe',
+				path: stateRoot,
 				removed,
-				summary: removed ? 'Deleted local Vibe task state.' : 'No local Vibe task state found.',
+				summary: removed ? 'Deleted workspace Vibe task state.' : 'No workspace Vibe task state found.',
 			});
 		});
 }

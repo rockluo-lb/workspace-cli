@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import { z } from 'zod';
+import { resolveWorkspaceStateDir } from './state-paths.js';
 import type { VibeConfig } from './types.js';
 
 function resolveRepositoryReviewers(
@@ -70,12 +71,12 @@ export const defaultConfig: VibeConfig = configSchema.parse({
 	verify: {},
 });
 
-export function getConfigPath(rootDir: string): string {
-	return path.join(rootDir, '.vibe', 'config.json');
+export function getConfigPath(rootDir: string, stateRoot = resolveWorkspaceStateDir(rootDir)): string {
+	return path.join(stateRoot, 'config.json');
 }
 
-export async function loadOrCreateConfig(rootDir: string): Promise<VibeConfig> {
-	const configPath = getConfigPath(rootDir);
+export async function loadOrCreateConfig(rootDir: string, stateRoot = resolveWorkspaceStateDir(rootDir)): Promise<VibeConfig> {
+	const configPath = getConfigPath(rootDir, stateRoot);
 	await fs.ensureDir(path.dirname(configPath));
 
 	if (!(await fs.pathExists(configPath))) {

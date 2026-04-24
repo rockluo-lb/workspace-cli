@@ -407,7 +407,7 @@ export interface TaskStore {
 	writeTaskFile(jiraKey: string, name: string, content: string): Promise<string>;
 	writeReport(jiraKey: string, name: string, content: string): Promise<string>;
 	appendLog(jiraKey: string, name: string, line: string): Promise<string>;
-	clearVibeDir(): Promise<boolean>;
+	clearStateDir(): Promise<boolean>;
 }
 
 export interface WorkflowOrchestrator {
@@ -424,6 +424,7 @@ export interface WorkflowOrchestrator {
 
 export interface WorkflowOrchestratorDeps {
 	rootDir: string;
+	stateRoot: string;
 	config: VibeConfig;
 	tools: ExternalToolAdapter;
 	repoAnalyzer: RepoAnalyzer;

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { AppError } from '../shared/errors.js';
 import type {
 	CommitStepResult,
@@ -134,7 +135,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			baseBranch,
 			branch,
 			currentBranch,
-			taskDir: `.vibe/tasks/${jiraKey}`,
+			taskDir: path.join(this.deps.stateRoot, 'tasks', jiraKey),
 			warnings,
 		};
 	}
@@ -463,7 +464,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 				case 'pr_ready':
 					return `vibe pr ${jiraKey}`;
 				case 'failed':
-					return `Inspect logs under .vibe/tasks/${jiraKey}/logs and rerun the last safe command.`;
+					return `Inspect logs under ${path.join(this.deps.stateRoot, 'tasks', jiraKey, 'logs')} and rerun the last safe command.`;
 				case 'aborted':
 					return `Task ${jiraKey} is aborted. Re-run vibe start if you want a fresh task.`;
 			}

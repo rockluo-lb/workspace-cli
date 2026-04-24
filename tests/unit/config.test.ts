@@ -1,23 +1,34 @@
 import fs from 'fs-extra';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { loadOrCreateConfig } from '../../src/core/shared/config.js';
-import { createTempDir } from '../helpers/test-env.js';
+import { resolveWorkspaceStateDir } from '../../src/core/shared/state-paths.js';
+import { createTempDir, useTempStateRoot } from '../helpers/test-env.js';
 
 describe('config loading', () => {
+	afterEach(() => {
+		delete process.env.VIBE_STATE_ROOT;
+	});
+
 	it('creates a default config when missing', async () => {
 		const rootDir = await createTempDir('vibe-config-');
+		const stateBaseDir = await useTempStateRoot();
 		const config = await loadOrCreateConfig(rootDir);
 		expect(config.branchPattern).toBe('feat/{jiraKey}');
 		expect(config.pr.aiDisclosure).toContain('vibe-cli AI assistance');
-		expect(await fs.pathExists(path.join(rootDir, '.vibe', 'config.json'))).toBe(true);
+		expect(await fs.pathExists(path.join(rootDir, '.vibe'))).toBe(false);
+		expect(
+			await fs.pathExists(path.join(resolveWorkspaceStateDir(rootDir, stateBaseDir), 'config.json'))
+		).toBe(true);
 	});
 
 	it('applies repository reviewer presets when reviewers are not provided', async () => {
 		const rootDir = await createTempDir('vibe-config-reviewers-');
-		await fs.ensureDir(path.join(rootDir, '.vibe'));
+		const stateBaseDir = await useTempStateRoot();
+		const stateRoot = resolveWorkspaceStateDir(rootDir, stateBaseDir);
+		await fs.ensureDir(stateRoot);
 		await fs.writeJson(
-			path.join(rootDir, '.vibe', 'config.json'),
+			path.join(stateRoot, 'config.json'),
 			{
 				github: {
 					repository: 'lifebyte-systems/CRM-Sales-Frontend',
@@ -32,9 +43,11 @@ describe('config loading', () => {
 
 	it('allows overriding reviewer presets and pr disclosure from config', async () => {
 		const rootDir = await createTempDir('vibe-config-dynamic-');
-		await fs.ensureDir(path.join(rootDir, '.vibe'));
+		const stateBaseDir = await useTempStateRoot();
+		const stateRoot = resolveWorkspaceStateDir(rootDir, stateBaseDir);
+		await fs.ensureDir(stateRoot);
 		await fs.writeJson(
-			path.join(rootDir, '.vibe', 'config.json'),
+			path.join(stateRoot, 'config.json'),
 			{
 				github: {
 					repository: 'example/repo',

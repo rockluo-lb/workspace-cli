@@ -11,14 +11,14 @@ import type {
 } from '../shared/types.js';
 
 export class FileTaskStore implements TaskStore {
-	constructor(private readonly rootDir: string) {}
+	constructor(private readonly stateRoot: string) {}
 
-	get vibeDir(): string {
-		return path.join(this.rootDir, '.vibe');
+	get stateDir(): string {
+		return this.stateRoot;
 	}
 
 	taskDir(jiraKey: string): string {
-		return path.join(this.vibeDir, 'tasks', jiraKey);
+		return path.join(this.stateDir, 'tasks', jiraKey);
 	}
 
 	async ensureTaskDirs(jiraKey: string): Promise<void> {
@@ -87,12 +87,12 @@ export class FileTaskStore implements TaskStore {
 		return filePath;
 	}
 
-	async clearVibeDir(): Promise<boolean> {
-		if (!(await fs.pathExists(this.vibeDir))) {
+	async clearStateDir(): Promise<boolean> {
+		if (!(await fs.pathExists(this.stateDir))) {
 			return false;
 		}
 
-		await fs.remove(this.vibeDir);
+		await fs.remove(this.stateDir);
 		return true;
 	}
 

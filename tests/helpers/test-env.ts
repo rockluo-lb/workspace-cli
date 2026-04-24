@@ -7,6 +7,12 @@ export async function createTempDir(prefix: string): Promise<string> {
 	return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+export async function useTempStateRoot(prefix = 'vibe-state-'): Promise<string> {
+	const stateRoot = await createTempDir(prefix);
+	process.env.VIBE_STATE_ROOT = stateRoot;
+	return stateRoot;
+}
+
 export function run(command: string, args: string[], cwd: string): string {
 	const result = spawnSync(command, args, {
 		cwd,
@@ -21,7 +27,7 @@ export function run(command: string, args: string[], cwd: string): string {
 }
 
 export async function initGitRepo(rootDir: string): Promise<void> {
-	await fs.writeFile(path.join(rootDir, '.gitignore'), '.vibe/\n', 'utf8');
+	await fs.writeFile(path.join(rootDir, '.gitignore'), '.cursor/\n', 'utf8');
 	await fs.writeFile(path.join(rootDir, 'README.md'), '# Test Repo\n', 'utf8');
 	run('git', ['init', '-b', 'main'], rootDir);
 	run('git', ['config', 'user.email', 'test@example.com'], rootDir);
