@@ -6,6 +6,7 @@ import { registerAbortCommand } from './commands/abort.js';
 import { registerCleanCommand } from './commands/clean.js';
 import { registerCodeCommand } from './commands/code.js';
 import { registerCommitCommand } from './commands/commit.js';
+import { registerDoneCommand } from './commands/done.js';
 import { registerContextCommand } from './commands/context.js';
 import { registerPlanCommand } from './commands/plan.js';
 import { registerPrCommand } from './commands/pr.js';
@@ -28,6 +29,7 @@ async function main(): Promise<void> {
 	registerShowCommand(program, getApp);
 	registerCodeCommand(program, getApp);
 	registerCommitCommand(program, getApp);
+	registerDoneCommand(program, getApp);
 	registerVerifyCommand(program, getApp);
 	registerPrCommand(program, getApp);
 	registerResumeCommand(program, getApp);

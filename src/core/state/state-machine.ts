@@ -13,11 +13,11 @@ const taskTransitions: Record<TaskStatus, TaskStatus[]> = {
 };
 
 const stepTransitions: Record<PlanStepStatus, PlanStepStatus[]> = {
-	pending: ['coded', 'verified', 'failed'],
+	pending: ['coded', 'verified', 'committed', 'failed'],
 	coded: ['verified', 'committed', 'failed'],
 	verified: ['committed', 'failed'],
 	committed: [],
-	failed: ['pending', 'coded', 'verified'],
+	failed: ['pending', 'coded', 'verified', 'committed'],
 };
 
 export function canTransitionTaskStatus(from: TaskStatus, to: TaskStatus): boolean {

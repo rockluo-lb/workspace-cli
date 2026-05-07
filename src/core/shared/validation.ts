@@ -2,7 +2,7 @@ import { AppError } from './errors.js';
 
 export const JIRA_KEY_PATTERN = /^CRMCN-\d+$/;
 export const BRANCH_PATTERN = /^feat\/CRMCN-\d+$/;
-export const COMMIT_PATTERN = /^feat\(CRMCN-\d+\): .+$/;
+export const COMMIT_PATTERN = /^(feat|refactor|fix|style)\(CRMCN-\d+\): .+$/;
 
 export function assertValidJiraKey(jiraKey: string): void {
 	if (!JIRA_KEY_PATTERN.test(jiraKey)) {

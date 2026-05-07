@@ -28,11 +28,18 @@ export class ShellVerifyService implements VerifyService {
 					stdout?: string;
 					stderr?: string;
 				};
+				const exitCode: number = typeof failure.code === 'number' ? failure.code : 1;
+				const stderr = failure.stderr ?? failure.message;
+				// Detect command not found (exit code 127) and provide helpful message
+				const enhancedStderr =
+					exitCode === 127
+						? `${stderr}\n\nHint: Command not found. Check that the script exists in your project's package.json and update vibe config (verify.taskCommands / verify.stepCommands) to match.`
+						: stderr;
 				results.push({
 					command,
-					code: typeof failure.code === 'number' ? failure.code : 1,
+					code: exitCode,
 					stdout: failure.stdout ?? '',
-					stderr: failure.stderr ?? failure.message,
+					stderr: enhancedStderr,
 				});
 			}
 		}

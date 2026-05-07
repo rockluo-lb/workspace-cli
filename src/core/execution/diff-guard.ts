@@ -14,8 +14,10 @@ function normalize(file: string): string {
 	return file.replace(/\\/g, '/');
 }
 
-function isNeighbor(expected: string, actual: string): boolean {
-	return path.posix.dirname(normalize(expected)) === path.posix.dirname(normalize(actual));
+function isWithinScope(expected: string, actual: string): boolean {
+	const expectedDir = path.posix.dirname(normalize(expected));
+	const actualPath = normalize(actual);
+	return actualPath.startsWith(expectedDir + '/') || actualPath === expectedDir;
 }
 
 export class DefaultDiffGuard implements DiffGuard {
@@ -36,10 +38,10 @@ export class DefaultDiffGuard implements DiffGuard {
 				continue;
 			}
 
-			if (!expected.includes(file) && !expected.some((candidate) => isNeighbor(candidate, file))) {
+			if (!expected.includes(file) && !expected.some((candidate) => isWithinScope(candidate, file))) {
 				errors.push(`File out of scope for step ${step.id}: ${file}`);
 			} else if (!expected.includes(file)) {
-				warnings.push(`File is adjacent to expected scope and should be reviewed: ${file}`);
+				warnings.push(`File is within scope directory but not in expected files: ${file}`);
 			}
 		}
 

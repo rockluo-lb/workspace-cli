@@ -335,15 +335,19 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			throw new AppError('DIFF_OUT_OF_SCOPE', `No diff found for step ${stepId}.`);
 		}
 
+		// Auto-stage all changed files before scope validation
+		await this.deps.gitService.addFiles(changedFiles);
+
 		const guard = this.deps.diffGuard.validate(step, changedFiles);
 		if (!guard.ok) {
 			throw new AppError('DIFF_OUT_OF_SCOPE', guard.errors.join('; '));
 		}
 
-		await this.deps.gitService.addFiles(changedFiles);
 		const sha = await this.deps.gitService.commit(step.commitMessage);
 		assertStepTransition(step.status, 'committed');
 		step.status = 'committed';
+		// Auto-update expectedFiles with actual committed files
+		step.expectedFiles = [...new Set([...step.expectedFiles, ...changedFiles])].sort();
 		await this.deps.taskStore.savePlan(jiraKey, plan);
 
 		progress.completedSteps = [...new Set([...progress.completedSteps, stepId])].sort((a, b) => a - b);
