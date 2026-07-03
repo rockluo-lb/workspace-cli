@@ -324,7 +324,7 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
   "planning": {
     "minSteps": 3,
     "maxSteps": 7,
-    "maxFilesPerStep": 6
+    "maxFilesPerStep": 12
   },
   "verify": {
     "stepCommands": ["pnpm lint"],

@@ -50,7 +50,7 @@ const configSchema = z.object({
 	planning: z.object({
 		minSteps: z.number().int().min(1).default(3),
 		maxSteps: z.number().int().min(1).default(7),
-		maxFilesPerStep: z.number().int().min(1).default(6),
+		maxFilesPerStep: z.number().int().min(1).default(12),
 	}),
 	verify: z.object({
 		stepCommands: z.array(z.string()).default(['pnpm lint']),

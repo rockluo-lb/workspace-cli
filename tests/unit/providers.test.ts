@@ -63,7 +63,7 @@ describe('provider contracts', () => {
 					aiDisclosure:
 						'> This PR draft was generated with vibe-cli AI assistance. Please review all changes carefully before merging.',
 				},
-				planning: { minSteps: 3, maxSteps: 7, maxFilesPerStep: 6 },
+				planning: { minSteps: 3, maxSteps: 7, maxFilesPerStep: 12 },
 				verify: { stepCommands: ['git status --short'], taskCommands: ['git status --short'] },
 			},
 		});
