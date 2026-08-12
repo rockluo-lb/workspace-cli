@@ -4,12 +4,23 @@ import type { PlanStepStatus, TaskStatus } from '../shared/types.js';
 const taskTransitions: Record<TaskStatus, TaskStatus[]> = {
 	initialized: ['context_ready', 'planned', 'failed', 'aborted'],
 	context_ready: ['planned', 'failed', 'aborted'],
-	planned: ['coding', 'verifying', 'failed', 'aborted'],
-	coding: ['planned', 'verifying', 'failed', 'aborted'],
+	planned: ['reviewing', 'failed', 'aborted'],
+	reviewing: ['planned', 'plan_approved', 'failed', 'aborted'],
+	plan_approved: ['planned', 'coding', 'verifying', 'failed', 'aborted'],
+	coding: ['planned', 'plan_approved', 'verifying', 'failed', 'aborted'],
 	verifying: ['pr_ready', 'failed', 'aborted'],
 	pr_ready: ['failed', 'aborted'],
 	aborted: [],
-	failed: ['initialized', 'context_ready', 'planned', 'coding', 'verifying', 'aborted'],
+	failed: [
+		'initialized',
+		'context_ready',
+		'planned',
+		'reviewing',
+		'plan_approved',
+		'coding',
+		'verifying',
+		'aborted',
+	],
 };
 
 const stepTransitions: Record<PlanStepStatus, PlanStepStatus[]> = {

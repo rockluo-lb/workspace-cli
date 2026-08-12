@@ -16,6 +16,8 @@ describe('config loading', () => {
 		const config = await loadOrCreateConfig(rootDir);
 		expect(config.branchPattern).toBe('feat/{jiraKey}');
 		expect(config.pr.aiDisclosure).toContain('vibe-cli AI assistance');
+		expect(config.review.uncertaintyThreshold).toBe(0.2);
+		expect(config.review.maxIterations).toBe(3);
 		expect(await fs.pathExists(path.join(rootDir, '.vibe'))).toBe(false);
 		expect(
 			await fs.pathExists(path.join(resolveWorkspaceStateDir(rootDir, stateBaseDir), 'config.json'))

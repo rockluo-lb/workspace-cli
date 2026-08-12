@@ -29,6 +29,18 @@ describe('workflow integration', () => {
 		expect(plan.plan.steps.length).toBeGreaterThanOrEqual(3);
 		expect(await fs.pathExists(path.join(stateRoot, 'tasks/CRMCN-1234/plan.md'))).toBe(true);
 
+		await expect(app.orchestrator.executeStep('CRMCN-1234', 1, { dryRun: true })).rejects.toThrow(
+			/not approved/
+		);
+
+		const review = await app.orchestrator.reviewPlan('CRMCN-1234');
+		expect(typeof review.review.uncertaintyScore).toBe('number');
+		expect(await fs.pathExists(path.join(stateRoot, 'tasks/CRMCN-1234/reports/review.md'))).toBe(true);
+		if (!review.review.approved) {
+			await app.orchestrator.reviewPlan('CRMCN-1234');
+			await app.orchestrator.reviewPlan('CRMCN-1234');
+		}
+
 		const code = await app.orchestrator.executeStep('CRMCN-1234', 1, { dryRun: true });
 		expect(code.summary).toContain('step 1');
 		expect(run('git', ['status', '--short'], rootDir)).toBe('');
@@ -45,7 +57,7 @@ describe('workflow integration', () => {
 
 		const resume = await app.orchestrator.resumeTask('CRMCN-1234');
 		expect(resume.pendingSteps).toContain(2);
-		expect(resume.nextAction).toContain('vibe code CRMCN-1234 --step 2');
+		expect(resume.nextAction).toContain('vibe done CRMCN-1234 --step 2');
 	});
 
 	it('creates the task branch from the current branch by default', async () => {

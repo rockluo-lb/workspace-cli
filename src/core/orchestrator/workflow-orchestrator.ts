@@ -11,6 +11,7 @@ import type {
 	ProgressState,
 	PRResult,
 	ResumeResult,
+	ReviewResult,
 	StartTaskResult,
 	TaskStatus,
 	VerifyResult,
@@ -21,7 +22,7 @@ import { assertValidCommitMessage, assertValidJiraKey, renderBranchName } from '
 import { assertStepTransition, assertTaskTransition } from '../state/state-machine.js';
 import { renderContextMarkdown } from '../templates/context-template.js';
 import { renderPlanMarkdown } from '../templates/plan-template.js';
-import { renderStepReport, renderVerifyReport } from '../templates/report-template.js';
+import { renderReviewReport, renderStepReport, renderVerifyReport } from '../templates/report-template.js';
 
 function mergeLinks(issue: JiraIssueContext, links: ExternalLink[], commentLinks: ExternalLink[]): ExternalLink[] {
 	const seen = new Set<string>();
@@ -239,10 +240,9 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 
 		await this.deps.taskStore.savePlan(jiraKey, plan);
 		const reportPath = await this.deps.taskStore.writeTaskFile(jiraKey, 'plan.md', renderPlanMarkdown(plan));
-		const nextProgress = updateTaskStatus(
-			progress.status === 'initialized' ? { ...progress, status: 'context_ready' } : progress,
-			'planned'
-		);
+		const rebased =
+			progress.status === 'initialized' ? { ...progress, status: 'context_ready' as TaskStatus } : progress;
+		const nextProgress = updateTaskStatus(rebased, 'planned');
 		await this.deps.taskStore.saveProgress(jiraKey, nextProgress);
 		await this.deps.taskStore.appendLog(jiraKey, 'plan.log', `Generated plan with ${plan.steps.length} steps`);
 
@@ -250,6 +250,73 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			jiraKey,
 			plan,
 			reportPath,
+		};
+	}
+
+	async reviewPlan(jiraKey: string): Promise<ReviewResult> {
+		const issue = requireValue(
+			await this.deps.taskStore.loadIssue(jiraKey),
+			'JIRA_FETCH_FAILED',
+			`Issue not found for ${jiraKey}`
+		);
+		const links = (await this.deps.taskStore.loadLinks(jiraKey)) ?? [];
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
+		const repoContext = requireValue(
+			await this.deps.taskStore.loadRepoContext(jiraKey),
+			'STATE_CORRUPTED',
+			`Repo context not found for ${jiraKey}`
+		);
+		const progress = requireValue(
+			await this.deps.taskStore.loadProgress(jiraKey),
+			'STATE_CORRUPTED',
+			`Progress not found for ${jiraKey}`
+		);
+
+		const iteration = (progress.reviewIteration ?? 0) + 1;
+		const review = this.deps.planReviewer.review({
+			jiraKey,
+			issue,
+			links,
+			repoContext,
+			plan,
+			config: this.deps.config,
+			iteration,
+		});
+
+		const reportPath = await this.deps.taskStore.writeReport(jiraKey, 'review.md', renderReviewReport(review));
+
+		const reviewing = updateTaskStatus(progress, 'reviewing');
+		reviewing.reviewIteration = iteration;
+		reviewing.lastUncertaintyScore = review.uncertaintyScore;
+		await this.deps.taskStore.saveProgress(jiraKey, reviewing);
+
+		const nextAction = review.approved
+			? `vibe done ${jiraKey} --step ${plan.steps[0]?.id ?? 1}`
+			: `Ask the user the ${review.openQuestions.length} open question(s), then rerun \`vibe plan ${jiraKey}\` and \`vibe review ${jiraKey}\`.`;
+
+		if (review.approved) {
+			const approved = updateTaskStatus(reviewing, 'plan_approved');
+			await this.deps.taskStore.saveProgress(jiraKey, approved);
+		} else {
+			const backToPlanned = updateTaskStatus(reviewing, 'planned');
+			await this.deps.taskStore.saveProgress(jiraKey, backToPlanned);
+		}
+
+		await this.deps.taskStore.appendLog(
+			jiraKey,
+			'review.log',
+			`Reviewed plan (iteration ${iteration}): score=${review.uncertaintyScore}, approved=${review.approved}`
+		);
+
+		return {
+			jiraKey,
+			review,
+			reportPath,
+			nextAction,
 		};
 	}
 
@@ -276,6 +343,12 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		if (step.status === 'committed') {
 			throw new AppError('STEP_ALREADY_COMMITTED', `Step ${stepId} is already committed.`);
 		}
+		if (progress.status === 'planned' || progress.status === 'reviewing') {
+			throw new AppError(
+				'PLAN_NOT_APPROVED',
+				`Plan for ${jiraKey} is not approved yet. Run \`vibe review ${jiraKey}\` and resolve open questions until the uncertainty score is low enough.`
+			);
+		}
 
 		const result = await this.deps.executor.execute({
 			jiraKey,
@@ -295,10 +368,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			`step-${stepId}-report.md`,
 			renderStepReport(step, [result.summary, ...result.warnings], result.verifyResults)
 		);
-		const nextProgress = updateTaskStatus(
-			progress.status === 'planned' ? progress : { ...progress, status: 'planned' },
-			'coding'
-		);
+		const nextProgress = updateTaskStatus(progress, 'coding');
 		nextProgress.currentStep = stepId;
 		await this.deps.taskStore.saveProgress(jiraKey, nextProgress);
 		await this.deps.taskStore.appendLog(
@@ -371,7 +441,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			`Progress not found for ${jiraKey}`
 		);
 		const verifying = updateTaskStatus(
-			progress.status === 'planned' ? { ...progress, status: 'coding' } : progress,
+			progress.status === 'plan_approved' ? { ...progress, status: 'coding' } : progress,
 			'verifying'
 		);
 		await this.deps.taskStore.saveProgress(jiraKey, verifying);
@@ -455,13 +525,17 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 				case 'context_ready':
 					return `vibe plan ${jiraKey}`;
 				case 'planned':
-					return `vibe code ${jiraKey} --step ${pendingSteps[0] ?? 1}`;
+					return `vibe review ${jiraKey}`;
+				case 'reviewing':
+					return `Resolve the open questions in review.md with the user, then rerun \`vibe plan ${jiraKey}\` and \`vibe review ${jiraKey}\`.`;
+				case 'plan_approved':
+					return `vibe done ${jiraKey} --step ${pendingSteps[0] ?? 1}`;
 				case 'coding':
 					if (currentStepStatus && currentStepStatus !== 'committed' && progress.currentStep) {
 						return `vibe commit ${jiraKey} --step ${progress.currentStep}`;
 					}
 					return pendingSteps.length > 0
-						? `vibe code ${jiraKey} --step ${pendingSteps[0]}`
+						? `vibe done ${jiraKey} --step ${pendingSteps[0]}`
 						: `vibe verify ${jiraKey}`;
 				case 'verifying':
 					return `vibe verify ${jiraKey}`;

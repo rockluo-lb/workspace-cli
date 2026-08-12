@@ -11,6 +11,8 @@ export type TaskStatus =
 	| 'initialized'
 	| 'context_ready'
 	| 'planned'
+	| 'reviewing'
+	| 'plan_approved'
 	| 'coding'
 	| 'verifying'
 	| 'pr_ready'
@@ -27,6 +29,7 @@ export type AppErrorCode =
 	| 'VERIFY_FAILED'
 	| 'DIFF_OUT_OF_SCOPE'
 	| 'STATE_CORRUPTED'
+	| 'PLAN_NOT_APPROVED'
 	| 'CAPABILITY_UNAVAILABLE';
 
 export interface ExternalLink {
@@ -215,6 +218,8 @@ export interface ProgressState {
 	commits: ProgressCommit[];
 	status: TaskStatus;
 	lastError?: string;
+	reviewIteration?: number;
+	lastUncertaintyScore?: number;
 }
 
 export interface VibeConfig {
@@ -249,6 +254,10 @@ export interface VibeConfig {
 		stepCommands: string[];
 		taskCommands: string[];
 	};
+	review: {
+		uncertaintyThreshold: number;
+		maxIterations: number;
+	};
 }
 
 export interface StartTaskResult {
@@ -272,6 +281,32 @@ export interface PlanResult {
 	jiraKey: string;
 	plan: ExecutionPlan;
 	reportPath: string;
+}
+
+export type OpenQuestionCategory = 'divergence' | 'scope' | 'design' | 'verification' | 'context';
+
+export interface OpenQuestion {
+	category: OpenQuestionCategory;
+	prompt: string;
+	relatedStepId?: number;
+	weight: number;
+}
+
+export interface PlanReview {
+	jiraKey: string;
+	uncertaintyScore: number;
+	threshold: number;
+	approved: boolean;
+	openQuestions: OpenQuestion[];
+	signals: string[];
+	iteration: number;
+}
+
+export interface ReviewResult {
+	jiraKey: string;
+	review: PlanReview;
+	reportPath: string;
+	nextAction: string;
 }
 
 export interface CommitStepResult {
@@ -374,6 +409,20 @@ export interface RepoAnalyzer {
 	analyze(input: RepoAnalyzerInput): Promise<RepoContext>;
 }
 
+export interface PlanReviewInput {
+	jiraKey: string;
+	issue: JiraIssueContext;
+	links: ExternalLink[];
+	repoContext: RepoContext;
+	plan: ExecutionPlan;
+	config: VibeConfig;
+	iteration: number;
+}
+
+export interface PlanReviewer {
+	review(input: PlanReviewInput): PlanReview;
+}
+
 export interface StepExecutor {
 	execute(input: ExecuteStepInput): Promise<ExecuteStepResult>;
 }
@@ -414,6 +463,7 @@ export interface WorkflowOrchestrator {
 	startTask(jiraKey: string): Promise<StartTaskResult>;
 	buildContext(jiraKey: string): Promise<ContextResult>;
 	generatePlan(jiraKey: string): Promise<PlanResult>;
+	reviewPlan(jiraKey: string): Promise<ReviewResult>;
 	executeStep(jiraKey: string, stepId: number, options?: { dryRun?: boolean }): Promise<ExecuteStepResult>;
 	commitStep(jiraKey: string, stepId: number): Promise<CommitStepResult>;
 	verifyTask(jiraKey: string): Promise<VerifyResult>;
@@ -433,6 +483,7 @@ export interface WorkflowOrchestratorDeps {
 		render(plan: ExecutionPlan): string;
 	};
 	executor: StepExecutor;
+	planReviewer: PlanReviewer;
 	gitService: LocalGitService;
 	verifyService: VerifyService;
 	taskStore: TaskStore;

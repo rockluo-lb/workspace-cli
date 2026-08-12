@@ -65,6 +65,7 @@ describe('provider contracts', () => {
 				},
 				planning: { minSteps: 3, maxSteps: 7, maxFilesPerStep: 12 },
 				verify: { stepCommands: ['git status --short'], taskCommands: ['git status --short'] },
+				review: { uncertaintyThreshold: 0.2, maxIterations: 3 },
 			},
 		});
 		expect(draft.steps.length).toBeGreaterThan(0);

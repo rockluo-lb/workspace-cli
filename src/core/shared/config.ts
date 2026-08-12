@@ -56,6 +56,10 @@ const configSchema = z.object({
 		stepCommands: z.array(z.string()).default(['pnpm lint']),
 		taskCommands: z.array(z.string()).default(['pnpm lint', 'pnpm typecheck', 'pnpm test --changed']),
 	}),
+	review: z.object({
+		uncertaintyThreshold: z.number().min(0).max(1).default(0.2),
+		maxIterations: z.number().int().min(1).default(3),
+	}),
 });
 
 export const defaultConfig: VibeConfig = configSchema.parse({
@@ -69,6 +73,7 @@ export const defaultConfig: VibeConfig = configSchema.parse({
 	pr: {},
 	planning: {},
 	verify: {},
+	review: {},
 });
 
 export function getConfigPath(rootDir: string, stateRoot = resolveWorkspaceStateDir(rootDir)): string {
@@ -101,6 +106,7 @@ export async function loadOrCreateConfig(rootDir: string, stateRoot = resolveWor
 		pr: { ...defaultConfig.pr, ...raw.pr },
 		planning: { ...defaultConfig.planning, ...raw.planning },
 		verify: { ...defaultConfig.verify, ...raw.verify },
+		review: { ...defaultConfig.review, ...raw.review },
 	});
 
 	const normalized = configSchema.parse({

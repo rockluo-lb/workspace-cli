@@ -11,6 +11,7 @@ import { registerContextCommand } from './commands/context.js';
 import { registerPlanCommand } from './commands/plan.js';
 import { registerPrCommand } from './commands/pr.js';
 import { registerResumeCommand } from './commands/resume.js';
+import { registerReviewCommand } from './commands/review.js';
 import { registerShowCommand } from './commands/show.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerVerifyCommand } from './commands/verify.js';
@@ -26,6 +27,7 @@ async function main(): Promise<void> {
 	registerStartCommand(program, getApp);
 	registerContextCommand(program, getApp);
 	registerPlanCommand(program, getApp);
+	registerReviewCommand(program, getApp);
 	registerShowCommand(program, getApp);
 	registerCodeCommand(program, getApp);
 	registerCommitCommand(program, getApp);
