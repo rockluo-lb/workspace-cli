@@ -22,6 +22,15 @@ describe('state machine', () => {
 		expect(canTransitionTaskStatus('plan_approved', 'coding')).toBe(true);
 	});
 
+	it('supports the code -> code_review -> code loop', () => {
+		expect(canTransitionTaskStatus('coding', 'code_review')).toBe(true);
+		expect(canTransitionTaskStatus('code_review', 'coding')).toBe(true);
+		expect(canTransitionTaskStatus('code_review', 'verifying')).toBe(true);
+		expect(canTransitionStepStatus('coded', 'reviewed')).toBe(true);
+		expect(canTransitionStepStatus('reviewed', 'committed')).toBe(true);
+		expect(canTransitionStepStatus('reviewed', 'coded')).toBe(true);
+	});
+
 	it('allows pending -> committed (skip intermediate states)', () => {
 		expect(canTransitionStepStatus('pending', 'committed')).toBe(true);
 		expect(() => assertStepTransition('pending', 'committed')).not.toThrow();

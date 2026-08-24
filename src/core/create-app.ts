@@ -3,6 +3,7 @@ import { DefaultStepExecutor } from './execution/step-executor.js';
 import { SimpleGitService } from './git/local-git-service.js';
 import { ShellVerifyService } from './git/verify-service.js';
 import { DefaultWorkflowOrchestrator } from './orchestrator/workflow-orchestrator.js';
+import { HeuristicCodeReviewer } from './planning/code-reviewer.js';
 import { MockAIProvider } from './planning/mock-ai-provider.js';
 import { HeuristicPlanReviewer } from './planning/plan-reviewer.js';
 import { DefaultPlanner } from './planning/planner.js';
@@ -23,6 +24,7 @@ export async function createApp(rootDir: string) {
 	const repoAnalyzer = new DefaultRepoContextAnalyzer();
 	const planner = new DefaultPlanner(aiProvider, config);
 	const planReviewer = new HeuristicPlanReviewer();
+	const codeReviewer = new HeuristicCodeReviewer();
 	const verifyService = new ShellVerifyService(rootDir);
 	const executor = new DefaultStepExecutor(rootDir, aiProvider, verifyService);
 	const taskStore = new FileTaskStore(stateRoot);
@@ -35,6 +37,7 @@ export async function createApp(rootDir: string) {
 		planner,
 		executor,
 		planReviewer,
+		codeReviewer,
 		gitService: new SimpleGitService(rootDir),
 		verifyService,
 		taskStore,
@@ -52,6 +55,7 @@ export async function createApp(rootDir: string) {
 		repoAnalyzer,
 		planner,
 		planReviewer,
+		codeReviewer,
 		verifyService,
 		executor,
 		taskStore,

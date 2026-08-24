@@ -11,23 +11,28 @@
 ## Workflow Lifecycle
 
 ```
-start → context → ┌─────────────────────────────┐ → [done --step N per step] → verify → pr (draft only)
-                  │  plan → review → plan (loop) │
-                  └─────────────────────────────┘
-                     until uncertainty is low
+start → context → ┌─────────────────────────────┐ → per step: ┌──────────────────────────────┐ → verify → pr (draft only)
+                  │  plan → review → plan (loop) │             │ code → code-review → code    │
+                  └─────────────────────────────┘             │ (loop) → commit when passed  │
+                     until uncertainty is low                  └──────────────────────────────┘
+                                                                  until risk is low
 ```
 
-The core of this workflow is the **plan → review → plan loop**: you keep refining the plan and re-reviewing it until the uncertainty score drops below the configured threshold (the plan becomes `plan_approved`). Only then may you execute steps. See "Agent Loop Model" below.
+This workflow has **two enforced loops**:
+
+- **plan → review → plan** (before any code): drives uncertainty down until the plan is `plan_approved`. Prevention layer.
+- **code → code-review → code** (before each commit): drives risk down until the diff passes review. Detection layer — this is where over-engineering is actually caught, because only a real diff reveals unnecessary abstraction.
 
 | Phase | Command | Description |
 |-------|---------|-------------|
 | 1. Initialize | `vibe start <JIRA_KEY>` | Create branch, fetch Jira issue, save context |
-| 2. Context | `vibe context <JIRA_KEY>` | Resolve Figma/Confluence links, analyze repo |
+| 2. Context | `vibe context <JIRA_KEY>` | Resolve Figma/Confluence links, analyze repo and project conventions |
 | 3. Plan | `vibe plan <JIRA_KEY>` | Generate step-by-step execution plan |
-| 4. Review | `vibe review <JIRA_KEY>` | Score plan uncertainty, surface open questions; loops back to plan until approved |
-| 5. Execute | `vibe done <JIRA_KEY> --step <N>` | Execute a step and commit in one atomic operation (only after plan is approved) |
-| 6. Verify | `vibe verify <JIRA_KEY>` | Run task-level verification (lint, typecheck, test) |
-| 7. PR | `vibe pr <JIRA_KEY>` | Generate a PR **draft** report only — never auto-pushes or opens a PR |
+| 4. Plan Review | `vibe review <JIRA_KEY>` | Score plan uncertainty, surface open questions; loops back to plan until approved |
+| 5. Execute | `vibe done <JIRA_KEY> --step <N>` | Execute a step, code review it, and commit only when the review passes |
+| 6. Code Review | `vibe code-review <JIRA_KEY> --step <N>` | Score diff risk (over-engineering, conventions, complexity); loops back to code until passed |
+| 7. Verify | `vibe verify <JIRA_KEY>` | Run task-level verification (lint, typecheck, test) |
+| 8. PR | `vibe pr <JIRA_KEY>` | Generate a PR **draft** report only — never auto-pushes or opens a PR |
 
 ---
 
@@ -52,6 +57,45 @@ This workflow enforces a deliberate loop to drive down uncertainty before any co
 ### Handling divergence & uncertainty — ask the user
 
 Whenever the review surfaces open questions, or you otherwise encounter divergence (e.g. multi-portal differences, ambiguous acceptance criteria, missing Figma context, unclear file scope), you MUST pause and ask the user to clarify before continuing the loop. Do not guess or silently pick a direction on decisions that materially change the plan. Fold the user's answers back into the next `vibe plan` iteration.
+
+---
+
+## Agent Loop Model: code → code-review → code
+
+This loop sits **between writing code and committing it**, and runs once per step:
+
+1. **Code**: make the changes for step N (`vibe done` runs the step execution report first).
+2. **Code Review**: `vibe code-review <JIRA_KEY> --step <N>` inspects the actual diff and produces:
+   - a `riskScore` (0–1) compared against `codeReview.riskThreshold` (default `0.25`)
+   - `findings` grouped by category: `over-engineering`, `convention`, `complexity`, `dependency`, `scope`
+   - a `passed` verdict
+3. **Decision**:
+   - If **not passed**, the step stays un-committable. You MUST fix the findings (remove over-engineering first, then convention/complexity issues) and rerun `vibe code-review`. Repeat until passed (or until `codeReview.maxIterations` is reached).
+   - If **passed**, the step becomes `reviewed` and can be committed.
+
+**Hard rule:** `vibe commit` / `vibe done` will fail with `CODE_REVIEW_NOT_PASSED` if the step has not passed code review. Never commit around the loop.
+
+### Avoiding over-engineering (the primary purpose of this loop)
+
+Apply YAGNI ruthlessly. Before accepting your own diff, check:
+
+- **No speculative abstraction.** Do not add interfaces, factories, managers, wrappers, strategy/adapter layers, or "base" classes for a single concrete use case. Inline it until a second real caller exists.
+- **No unused extension points.** No config flags, hooks, or generic parameters that nothing currently uses.
+- **Minimal diff.** Prefer modifying existing files over creating new ones. Prefer deleting code over adding parallel code paths.
+- **No new dependency** unless nothing existing can do the job; justify it explicitly if the diff touches `package.json`.
+- **Scope discipline.** Only touch what the step's `expectedFiles` implies.
+
+The reviewer flags pure-addition file counts above `codeReview.maxNewFiles`, insertions above `codeReview.maxInsertions`, abstraction-smell filenames, dependency manifest changes, and missing test coverage. Treat those findings as real signals, not noise to bypass.
+
+### Reviewing against project conventions and current best practices
+
+Before you review (and before you fix findings), gather both kinds of standards:
+
+1. **Project conventions (authoritative).** `vibe context` collects them into the `Conventions` section of `context.md`: `.cursor/rules` files, `AGENTS.md`, lint tools (eslint/prettier/biome), `tsconfig` strict mode, and available package scripts. Read the actual rule files when they exist — project rules always win over generic advice.
+2. **Latest external standards (reference).** You MUST look up current documentation and patterns rather than relying on memory:
+   - use **context7** to fetch the latest docs for the libraries/frameworks involved
+   - use **WebSearch** for current design pattern / best practice guidance when the change involves a non-trivial design decision
+   Then apply what you learned only where it does not conflict with project conventions, and only where it simplifies the code. Never introduce a pattern just because it is modern — that is itself over-engineering.
 
 ---
 
@@ -151,13 +195,41 @@ vibe review CRMCN-11400
 
 ---
 
+### `vibe code-review <JIRA_KEY> --step <N>`
+
+**Purpose:** Review the current diff for a step, score its risk, and decide whether it may be committed. This is the gate of the code → code-review → code loop.
+
+**What it does:**
+1. Reads the current changed files and their diff stats (insertions/deletions, including untracked files)
+2. Runs the scope check and heuristics over the diff, computing a `riskScore` (0–1)
+3. Produces `findings` grouped by category: `over-engineering`, `convention`, `complexity`, `dependency`, `scope`
+4. Compares the score to `codeReview.riskThreshold`:
+   - `score <= threshold` → the step becomes `reviewed`; committing is unlocked
+   - `score > threshold` → the step stays un-committable; fix the findings and re-review
+5. Saves a `step-<N>-code-review.md` report and returns a recommended `nextAction`
+6. If `codeReview.maxIterations` is reached, the review is force-passed to avoid infinite loops (a signal is recorded)
+
+**Usage:**
+```bash
+vibe code-review CRMCN-11400 --step 1
+```
+
+**Agent behavior when not passed:**
+- Read the `findings` in the returned result / `step-<N>-code-review.md`
+- Fix them in priority order: over-engineering first, then convention, complexity, dependency, scope
+- Consult project conventions (`.cursor/rules`, `AGENTS.md`, lint config) and look up current best practices with context7/WebSearch as needed
+- Rerun `vibe code-review <JIRA_KEY> --step <N>` until it passes
+
+---
+
 ### `vibe done <JIRA_KEY> --step <N>`
 
-**Purpose:** Execute a plan step AND commit the changes in one atomic operation. This is the **recommended** command for agents — it combines `code` + `commit` into a single call.
+**Purpose:** Execute a plan step, code review it, and commit when the review passes. This is the **recommended** command for agents — it chains `code` + `code-review` + `commit` into a single call.
 
 **What it does:**
 1. **Execute phase:** Reads the step's expectedFiles, generates an execution report with AI guidance, runs per-step verify commands
-2. **Commit phase:**
+2. **Code review phase:** Scores the diff risk and prints the findings (see `vibe code-review`). If the review does not pass, the command stops here with `CODE_REVIEW_NOT_PASSED` and **nothing is committed**
+3. **Commit phase** (only when the review passed):
    - Validates the commit message format
    - Auto-stages all changed files (no manual `git add` needed)
    - Validates changed files are within scope (directory-level check)
@@ -167,25 +239,23 @@ vibe review CRMCN-11400
 
 **Usage:**
 ```bash
-# Execute and commit step 1
+# Execute, review, and commit step 1
 vibe done CRMCN-11400 --step 1
 
-# Execute and commit step 2
+# Execute, review, and commit step 2
 vibe done CRMCN-11400 --step 2
-
-# Dry-run (execute only, no commit)
-vibe done CRMCN-11400 --step 1 --dry-run
 ```
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `--step <N>` | Required. The step number to execute and commit |
-| `--dry-run` | Optional. Execute without committing (report only) |
+| `--step <N>` | Required. The step number to execute, review, and commit |
+| `--dry-run` | Optional. Skip applying source changes during the execute phase |
 
 **Key behaviors:**
 - You do NOT need to run `git add` before this command — it auto-stages
-- You do NOT need to run `vibe code` separately — `done` handles both code and commit
+- You do NOT need to run `vibe code` / `vibe code-review` / `vibe commit` separately — `done` chains all three
+- If code review fails, fix the findings and rerun `vibe done` (or `vibe code-review` then `vibe commit`)
 - Commit message must match: `^(feat|refactor|fix|style)(<JIRA_KEY>): .+$`
 - Changed files are validated at the **directory level** — files in the same directory as expectedFiles are allowed (supports file-to-folder refactoring)
 - If no diff is found, the command will fail with `DIFF_OUT_OF_SCOPE`
@@ -311,17 +381,23 @@ Here is the complete workflow an AI agent should follow:
 
 Do not leave this loop until `vibe review` reports `approved: true`. Executing steps before approval fails with `PLAN_NOT_APPROVED`.
 
-### Phase 3: Implementation (per step)
+### Phase 3: Implementation with code review loop (per step)
 
 For each step N in the plan (starting from 1):
 
 ```
 6. [Make the code changes for step N in the codebase]
-7. vibe done <JIRA_KEY> --step N  # Execute report + auto-stage + commit
+7. vibe done <JIRA_KEY> --step N  # Execute report + code review + (if passed) auto-stage + commit
+   └─ if code review NOT passed (CODE_REVIEW_NOT_PASSED):
+        → fix the findings (remove over-engineering first)
+        → vibe code-review <JIRA_KEY> --step N   # re-review
+        → repeat until passed, then: vibe commit <JIRA_KEY> --step N
 ```
 
 **Important agent behaviors during implementation:**
 - Read the plan's `expectedFiles` for each step to understand scope
+- Before reviewing/fixing, consult project conventions and look up current best practices (context7/WebSearch) — see the code review loop section
+- Do not leave the loop by committing around it; `vibe commit` enforces `CODE_REVIEW_NOT_PASSED`
 - The `done` command will auto-stage and commit — do NOT run `git add` or `git commit` manually
 - If you need to refactor a file into a directory (e.g., `details.tsx` → `details/index.tsx`), the directory-level scope check will allow it
 - Commit messages in the plan are pre-formatted; if you change the plan, use prefixes: `feat`, `refactor`, `fix`, or `style`
@@ -347,28 +423,29 @@ Vibe-cli maintains state in `.vibe/tasks/<JIRA_KEY>/`:
 | `links.json` | External links (Figma, Confluence) |
 | `repo-context.json` | Local repo analysis |
 | `plan.json` | Execution plan with step statuses |
-| `progress.json` | Task progress, commits, current step, review iteration & last uncertainty score |
-| `reports/` | Generated reports (context.md, plan.md, review.md, verify-report.md, pr.md) |
+| `progress.json` | Task progress, commits, current step, plan/code review iterations & last scores |
+| `reports/` | Generated reports (context.md, plan.md, review.md, step-N-code-review.md, verify-report.md, pr.md) |
 | `logs/` | Operation logs |
 
 ### Step Status Lifecycle
 
 ```
-pending → coded → verified → committed
-                ↗
-pending → committed (direct commit via `done`)
+pending → coded → reviewed → committed
+                ↑________|
+        (code review not passed: fix and re-review)
 ```
 
 - `pending`: Step not yet started
-- `coded`: Step executed (report generated) but not committed
-- `verified`: Step executed and verification passed
+- `coded`: Step executed (report generated) but not yet code reviewed
+- `verified`: Step executed and step verification passed
+- `reviewed`: Step passed code review; committing is unlocked
 - `committed`: Changes committed to git
 - `failed`: Step failed (can be retried)
 
 ### Task Status Lifecycle
 
 ```
-initialized → context_ready → planned ⇄ reviewing → plan_approved → coding → verifying → pr_ready
+initialized → context_ready → planned ⇄ reviewing → plan_approved → coding ⇄ code_review → verifying → pr_ready
                                   ↑__________________|
                           (loop back when uncertainty is too high)
 ```
@@ -376,6 +453,8 @@ initialized → context_ready → planned ⇄ reviewing → plan_approved → co
 - `planned`: A plan exists but has not been approved by review
 - `reviewing`: Plan is being reviewed; transitions to `plan_approved` (low uncertainty) or back to `planned` (needs refinement)
 - `plan_approved`: Uncertainty is low enough; execution (`vibe done`) is unlocked
+- `coding`: A step is being implemented, or a step passed code review and is ready to commit
+- `code_review`: A step's diff is awaiting/undergoing code review; committing is blocked until it passes
 
 ---
 
@@ -412,13 +491,25 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
   "review": {
     "uncertaintyThreshold": 0.2,
     "maxIterations": 3
+  },
+  "codeReview": {
+    "riskThreshold": 0.25,
+    "maxIterations": 3,
+    "maxNewFiles": 3,
+    "maxInsertions": 400
   }
 }
 ```
 
-**Review settings:**
+**Plan review settings (`review`):**
 - `uncertaintyThreshold`: The plan is approved when `uncertaintyScore <= threshold`. Lower it to demand a more certain plan (more loop iterations); raise it to be more permissive.
 - `maxIterations`: Safety cap on the plan → review loop. When reached, the plan is force-approved so the workflow cannot loop forever.
+
+**Code review settings (`codeReview`):**
+- `riskThreshold`: The diff passes when `riskScore <= threshold`. Lower it to be stricter about over-engineering.
+- `maxIterations`: Safety cap on the code → code-review loop. When reached, the review is force-passed.
+- `maxNewFiles`: Pure-addition file count above this is flagged as possible over-engineering.
+- `maxInsertions`: Total inserted lines above this is flagged as too large a step; a single file above half this value is flagged for doing too much.
 
 ---
 
@@ -434,6 +525,7 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 | `STEP_ALREADY_COMMITTED` | Step was already committed | Move to the next step |
 | `DIFF_OUT_OF_SCOPE` | Changed files outside step scope | Ensure changes match expectedFiles directory |
 | `PLAN_NOT_APPROVED` | Tried to execute before the plan was approved | Run `vibe review`, resolve open questions, re-plan until approved |
+| `CODE_REVIEW_NOT_PASSED` | Tried to commit before the diff passed code review | Fix the findings in `step-<N>-code-review.md` (over-engineering first), then rerun `vibe code-review` |
 | `VERIFY_FAILED` | Verification commands failed | Fix issues and retry |
 | `STATE_CORRUPTED` | Internal state inconsistency | Check logs, may need `vibe clean` + restart |
 | `JIRA_FETCH_FAILED` | Cannot fetch Jira issue | Check Jira connectivity and permissions |
@@ -444,15 +536,18 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 
 1. **Never skip the plan → review loop** — run `vibe review` after `vibe plan`, and keep looping (plan → review → plan) until it reports `approved: true`. Execution is blocked before approval.
 2. **Ask the user on divergence/uncertainty** — when review surfaces open questions (or you hit any ambiguous/divergent decision), pause and ask the user; fold answers into the next `vibe plan`. Don't guess on decisions that change the plan.
-3. **Never auto-push or auto-create PRs** — `vibe pr` produces a draft only. Stop there and let the user review; `git push` and PR creation are manual, user-triggered actions.
-4. **Always use `vibe done` instead of `vibe code` + `vibe commit`** — it's atomic and handles staging automatically
-5. **Read the plan before implementing** — use `vibe show` to understand expectedFiles and commit messages
-6. **One step at a time** — implement, commit, then move to the next step
-7. **Don't manually `git add` or `git commit`** — vibe-cli handles this
-8. **Respect step scope** — changes should be in or near the expectedFiles directory
-9. **Use `--dry-run` for preview** — if unsure, run with `--dry-run` first to see what would happen
-10. **Check `vibe resume` if interrupted** — it tells you the next recommended action
-11. **Update verify commands if needed** — if `vibe verify` fails with command not found, update `.vibe/config.json`
+3. **Never skip the code → code-review loop** — every step must pass `vibe code-review` before it can be committed. Keep fixing and re-reviewing until it passes.
+4. **Default to less code** — YAGNI. No speculative abstraction, no unused extension points, no new dependency without justification. Over-engineering is the failure mode this loop exists to catch.
+5. **Review against project conventions first, external patterns second** — read `.cursor/rules`/`AGENTS.md`/lint config; use context7 for latest library docs and WebSearch for current design patterns, but never let a "modern pattern" add complexity the task doesn't need.
+6. **Never auto-push or auto-create PRs** — `vibe pr` produces a draft only. Stop there and let the user review; `git push` and PR creation are manual, user-triggered actions.
+7. **Always use `vibe done` instead of `vibe code` + `vibe code-review` + `vibe commit`** — it chains all three and handles staging automatically
+8. **Read the plan before implementing** — use `vibe show` to understand expectedFiles and commit messages
+9. **One step at a time** — implement, review, commit, then move to the next step
+10. **Don't manually `git add` or `git commit`** — vibe-cli handles this
+11. **Respect step scope** — changes should be in or near the expectedFiles directory
+12. **Use `--dry-run` for preview** — if unsure, run with `--dry-run` first to see what would happen
+13. **Check `vibe resume` if interrupted** — it tells you the next recommended action
+14. **Update verify commands if needed** — if `vibe verify` fails with command not found, update `.vibe/config.json`
 
 ---
 
@@ -480,6 +575,10 @@ vibe show CRMCN-11400
 # 6. Implement step 1 (e.g., add API types and i18n keys)
 #    [make code changes in the codebase]
 vibe done CRMCN-11400 --step 1
+#    If code review NOT passed (code → code-review → code loop):
+#      [fix the findings, removing over-engineering first]
+#      vibe code-review CRMCN-11400 --step 1   # re-review; repeat until passed
+#      vibe commit CRMCN-11400 --step 1
 
 # 7. Implement step 2 (e.g., build table component with filters)
 #    [make code changes in the codebase]

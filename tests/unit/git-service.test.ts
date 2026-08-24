@@ -34,5 +34,23 @@ describe('git service', () => {
 
 		await expect(service.ensureCleanWorktree()).resolves.toBeUndefined();
 		await expect(service.getDiffFiles()).resolves.toEqual([]);
+		await expect(service.getDiffStat()).resolves.toEqual([]);
+	});
+
+	it('reports diff stats for tracked edits and untracked files', async () => {
+		const rootDir = await createTempDir('vibe-git-service-diffstat-');
+		await initGitRepo(rootDir);
+		await fs.appendFile(path.join(rootDir, 'README.md'), 'line a\nline b\n', 'utf8');
+		await fs.writeFile(path.join(rootDir, 'added.ts'), 'export const a = 1;\nexport const b = 2;\n', 'utf8');
+
+		const service = new SimpleGitService(rootDir);
+		const stats = await service.getDiffStat();
+
+		const readme = stats.find((stat) => stat.file === 'README.md');
+		const added = stats.find((stat) => stat.file === 'added.ts');
+
+		expect(readme?.insertions).toBeGreaterThan(0);
+		expect(added?.insertions).toBeGreaterThan(0);
+		expect(added?.deletions).toBe(0);
 	});
 });

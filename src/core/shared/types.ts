@@ -6,7 +6,7 @@ export type FigmaMode = 'file' | 'design' | 'proto';
 export type JiraProviderMode = 'auto' | 'atlassian-mcp' | 'atlassian-plugin';
 export type FigmaProviderMode = 'figma-mcp' | 'figma-plugin';
 export type GitHubProviderMode = 'github-mcp' | 'github-plugin';
-export type PlanStepStatus = 'pending' | 'coded' | 'verified' | 'committed' | 'failed';
+export type PlanStepStatus = 'pending' | 'coded' | 'verified' | 'reviewed' | 'committed' | 'failed';
 export type TaskStatus =
 	| 'initialized'
 	| 'context_ready'
@@ -14,6 +14,7 @@ export type TaskStatus =
 	| 'reviewing'
 	| 'plan_approved'
 	| 'coding'
+	| 'code_review'
 	| 'verifying'
 	| 'pr_ready'
 	| 'aborted'
@@ -30,6 +31,7 @@ export type AppErrorCode =
 	| 'DIFF_OUT_OF_SCOPE'
 	| 'STATE_CORRUPTED'
 	| 'PLAN_NOT_APPROVED'
+	| 'CODE_REVIEW_NOT_PASSED'
 	| 'CAPABILITY_UNAVAILABLE';
 
 export interface ExternalLink {
@@ -128,6 +130,15 @@ export interface RouteInfo {
 	file: string;
 }
 
+export interface RepoConventions {
+	cursorRules: string[];
+	hasAgentsMd: boolean;
+	lintTools: string[];
+	tsStrict?: boolean;
+	scripts: string[];
+	dependencies: string[];
+}
+
 export interface RepoContext {
 	repoName: string;
 	packageManager: PackageManager;
@@ -139,6 +150,7 @@ export interface RepoContext {
 	stateManagement?: string[];
 	apiPattern?: string;
 	testTools: string[];
+	conventions?: RepoConventions;
 	partial?: boolean;
 }
 
@@ -204,6 +216,12 @@ export interface DiffGuardResult {
 	errors: string[];
 }
 
+export interface DiffStat {
+	file: string;
+	insertions: number;
+	deletions: number;
+}
+
 export interface ProgressCommit {
 	step: number;
 	sha: string;
@@ -220,6 +238,8 @@ export interface ProgressState {
 	lastError?: string;
 	reviewIteration?: number;
 	lastUncertaintyScore?: number;
+	codeReviewIteration?: number;
+	lastRiskScore?: number;
 }
 
 export interface VibeConfig {
@@ -257,6 +277,12 @@ export interface VibeConfig {
 	review: {
 		uncertaintyThreshold: number;
 		maxIterations: number;
+	};
+	codeReview: {
+		riskThreshold: number;
+		maxIterations: number;
+		maxNewFiles: number;
+		maxInsertions: number;
 	};
 }
 
@@ -305,6 +331,39 @@ export interface PlanReview {
 export interface ReviewResult {
 	jiraKey: string;
 	review: PlanReview;
+	reportPath: string;
+	nextAction: string;
+}
+
+export type CodeReviewFindingCategory =
+	| 'over-engineering'
+	| 'convention'
+	| 'complexity'
+	| 'dependency'
+	| 'scope';
+
+export interface CodeReviewFinding {
+	category: CodeReviewFindingCategory;
+	message: string;
+	file?: string;
+	weight: number;
+}
+
+export interface CodeReview {
+	jiraKey: string;
+	stepId: number;
+	riskScore: number;
+	threshold: number;
+	passed: boolean;
+	findings: CodeReviewFinding[];
+	signals: string[];
+	iteration: number;
+}
+
+export interface CodeReviewResult {
+	jiraKey: string;
+	stepId: number;
+	review: CodeReview;
 	reportPath: string;
 	nextAction: string;
 }
@@ -423,6 +482,21 @@ export interface PlanReviewer {
 	review(input: PlanReviewInput): PlanReview;
 }
 
+export interface CodeReviewInput {
+	jiraKey: string;
+	step: PlanStep;
+	changedFiles: string[];
+	diffStats: DiffStat[];
+	repoContext: RepoContext;
+	scopeResult: DiffGuardResult;
+	config: VibeConfig;
+	iteration: number;
+}
+
+export interface CodeReviewer {
+	review(input: CodeReviewInput): CodeReview;
+}
+
 export interface StepExecutor {
 	execute(input: ExecuteStepInput): Promise<ExecuteStepResult>;
 }
@@ -433,6 +507,7 @@ export interface LocalGitService {
 	pullBaseBranch(baseBranch: string): Promise<void>;
 	createBranch(branchName: string): Promise<void>;
 	getDiffFiles(): Promise<string[]>;
+	getDiffStat(): Promise<DiffStat[]>;
 	addFiles(files: string[]): Promise<void>;
 	commit(message: string): Promise<string>;
 	getCurrentBranch(): Promise<string>;
@@ -465,6 +540,7 @@ export interface WorkflowOrchestrator {
 	generatePlan(jiraKey: string): Promise<PlanResult>;
 	reviewPlan(jiraKey: string): Promise<ReviewResult>;
 	executeStep(jiraKey: string, stepId: number, options?: { dryRun?: boolean }): Promise<ExecuteStepResult>;
+	reviewCode(jiraKey: string, stepId: number): Promise<CodeReviewResult>;
 	commitStep(jiraKey: string, stepId: number): Promise<CommitStepResult>;
 	verifyTask(jiraKey: string): Promise<VerifyResult>;
 	preparePR(jiraKey: string): Promise<PRResult>;
@@ -484,6 +560,7 @@ export interface WorkflowOrchestratorDeps {
 	};
 	executor: StepExecutor;
 	planReviewer: PlanReviewer;
+	codeReviewer: CodeReviewer;
 	gitService: LocalGitService;
 	verifyService: VerifyService;
 	taskStore: TaskStore;

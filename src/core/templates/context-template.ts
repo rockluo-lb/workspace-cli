@@ -17,6 +17,17 @@ export function renderContextMarkdown(input: {
 			? input.confluencePages.map((page) => `- [${page.title ?? page.url}](${page.url})`).join('\n')
 			: '- None';
 
+	const conventions = input.repoContext.conventions;
+	const conventionLines = conventions
+		? [
+				`- Cursor Rules: ${conventions.cursorRules.join(', ') || 'none'}`,
+				`- AGENTS.md: ${conventions.hasAgentsMd ? 'present' : 'absent'}`,
+				`- Lint Tools: ${conventions.lintTools.join(', ') || 'none'}`,
+				`- TS Strict: ${conventions.tsStrict === undefined ? 'unknown' : conventions.tsStrict}`,
+				`- Scripts: ${conventions.scripts.join(', ') || 'none'}`,
+			].join('\n')
+		: '- Not collected';
+
 	return `# Context for ${input.issue.key}
 
 ## Issue
@@ -30,6 +41,9 @@ export function renderContextMarkdown(input: {
 - Workspace: ${input.repoContext.workspaceType}
 - UI: ${input.repoContext.uiFramework ?? 'unknown'}
 - Tests: ${input.repoContext.testTools.join(', ') || 'none'}
+
+## Conventions
+${conventionLines}
 
 ## Figma
 ${figma}

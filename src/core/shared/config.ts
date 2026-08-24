@@ -60,6 +60,12 @@ const configSchema = z.object({
 		uncertaintyThreshold: z.number().min(0).max(1).default(0.2),
 		maxIterations: z.number().int().min(1).default(3),
 	}),
+	codeReview: z.object({
+		riskThreshold: z.number().min(0).max(1).default(0.25),
+		maxIterations: z.number().int().min(1).default(3),
+		maxNewFiles: z.number().int().min(1).default(3),
+		maxInsertions: z.number().int().min(1).default(400),
+	}),
 });
 
 export const defaultConfig: VibeConfig = configSchema.parse({
@@ -74,6 +80,7 @@ export const defaultConfig: VibeConfig = configSchema.parse({
 	planning: {},
 	verify: {},
 	review: {},
+	codeReview: {},
 });
 
 export function getConfigPath(rootDir: string, stateRoot = resolveWorkspaceStateDir(rootDir)): string {
@@ -107,6 +114,7 @@ export async function loadOrCreateConfig(rootDir: string, stateRoot = resolveWor
 		planning: { ...defaultConfig.planning, ...raw.planning },
 		verify: { ...defaultConfig.verify, ...raw.verify },
 		review: { ...defaultConfig.review, ...raw.review },
+		codeReview: { ...defaultConfig.codeReview, ...raw.codeReview },
 	});
 
 	const normalized = configSchema.parse({

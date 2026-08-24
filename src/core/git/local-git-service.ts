@@ -1,11 +1,51 @@
+import fs from 'fs-extra';
 import path from 'node:path';
 import { simpleGit, type SimpleGit } from 'simple-git';
 import { AppError } from '../shared/errors.js';
-import type { LocalGitService } from '../shared/types.js';
+import type { DiffStat, LocalGitService } from '../shared/types.js';
 
 function isOperationalFile(file: string): boolean {
 	const normalized = file.replace(/\\/g, '/');
 	return normalized.startsWith('.vibe/') || normalized.startsWith('.cursor/');
+}
+
+function parseNumstat(output: string): DiffStat[] {
+	return output
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+		.map((line) => {
+			const columns = line.split('\t');
+			const rawPath = columns.slice(2).join('\t');
+			const withoutBraces = rawPath.replace(/\{.*? => (.*?)\}/, '$1');
+			const resolvedPath = withoutBraces.includes(' => ')
+				? (withoutBraces.split(' => ').pop() ?? withoutBraces)
+				: withoutBraces;
+			return {
+				file: path.normalize(resolvedPath),
+				insertions: Number.parseInt(columns[0] ?? '', 10) || 0,
+				deletions: Number.parseInt(columns[1] ?? '', 10) || 0,
+			};
+		});
+}
+
+function mergeDiffStats(groups: DiffStat[][]): DiffStat[] {
+	const merged = new Map<string, DiffStat>();
+	for (const stats of groups) {
+		for (const stat of stats) {
+			if (isOperationalFile(stat.file)) {
+				continue;
+			}
+			const existing = merged.get(stat.file);
+			if (existing) {
+				existing.insertions += stat.insertions;
+				existing.deletions += stat.deletions;
+				continue;
+			}
+			merged.set(stat.file, { ...stat });
+		}
+	}
+	return [...merged.values()];
 }
 
 function formatDirtyWorktreeMessage(files: string[]): string {
@@ -84,6 +124,32 @@ export class SimpleGitService implements LocalGitService {
 			}
 		}
 		return [...files];
+	}
+
+	async getDiffStat(): Promise<DiffStat[]> {
+		const unstaged = parseNumstat(await this.git.raw(['diff', '--numstat']));
+		const staged = parseNumstat(await this.git.raw(['diff', '--numstat', '--cached']));
+		const status = await this.git.status();
+		const untracked: DiffStat[] = [];
+
+		for (const file of status.not_added) {
+			if (isOperationalFile(file)) {
+				continue;
+			}
+			const absolutePath = path.join(this.rootDir, file);
+			const stat = await fs.stat(absolutePath);
+			if (!stat.isFile()) {
+				continue;
+			}
+			const content = await fs.readFile(absolutePath, 'utf8');
+			untracked.push({
+				file: path.normalize(file),
+				insertions: content.length === 0 ? 0 : content.split('\n').length,
+				deletions: 0,
+			});
+		}
+
+		return mergeDiffStats([unstaged, staged, untracked]);
 	}
 
 	async addFiles(files: string[]): Promise<void> {

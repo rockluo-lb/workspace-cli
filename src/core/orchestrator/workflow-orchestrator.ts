@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { AppError } from '../shared/errors.js';
 import type {
+	CodeReviewResult,
 	CommitStepResult,
 	ContextResult,
 	ExecuteStepResult,
@@ -22,7 +23,12 @@ import { assertValidCommitMessage, assertValidJiraKey, renderBranchName } from '
 import { assertStepTransition, assertTaskTransition } from '../state/state-machine.js';
 import { renderContextMarkdown } from '../templates/context-template.js';
 import { renderPlanMarkdown } from '../templates/plan-template.js';
-import { renderReviewReport, renderStepReport, renderVerifyReport } from '../templates/report-template.js';
+import {
+	renderCodeReviewReport,
+	renderReviewReport,
+	renderStepReport,
+	renderVerifyReport,
+} from '../templates/report-template.js';
 
 function mergeLinks(issue: JiraIssueContext, links: ExternalLink[], commentLinks: ExternalLink[]): ExternalLink[] {
 	const seen = new Set<string>();
@@ -368,8 +374,10 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			`step-${stepId}-report.md`,
 			renderStepReport(step, [result.summary, ...result.warnings], result.verifyResults)
 		);
-		const nextProgress = updateTaskStatus(progress, 'coding');
+		const coding = progress.status === 'coding' ? progress : updateTaskStatus(progress, 'coding');
+		const nextProgress = updateTaskStatus(coding, 'code_review');
 		nextProgress.currentStep = stepId;
+		nextProgress.codeReviewIteration = 0;
 		await this.deps.taskStore.saveProgress(jiraKey, nextProgress);
 		await this.deps.taskStore.appendLog(
 			jiraKey,
@@ -378,6 +386,84 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		);
 
 		return result;
+	}
+
+	async reviewCode(jiraKey: string, stepId: number): Promise<CodeReviewResult> {
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
+		const repoContext = requireValue(
+			await this.deps.taskStore.loadRepoContext(jiraKey),
+			'STATE_CORRUPTED',
+			`Repo context not found for ${jiraKey}`
+		);
+		const progress = requireValue(
+			await this.deps.taskStore.loadProgress(jiraKey),
+			'STATE_CORRUPTED',
+			`Progress not found for ${jiraKey}`
+		);
+		const step = plan.steps.find((item) => item.id === stepId);
+		if (!step) {
+			throw new AppError('STEP_NOT_FOUND', `Step ${stepId} not found for ${jiraKey}`);
+		}
+		if (step.status === 'committed') {
+			throw new AppError('STEP_ALREADY_COMMITTED', `Step ${stepId} is already committed.`);
+		}
+
+		const changedFiles = await this.deps.gitService.getDiffFiles();
+		const diffStats = await this.deps.gitService.getDiffStat();
+		const scopeResult = this.deps.diffGuard.validate(step, changedFiles);
+		const iteration = (progress.codeReviewIteration ?? 0) + 1;
+		const review = this.deps.codeReviewer.review({
+			jiraKey,
+			step,
+			changedFiles,
+			diffStats,
+			repoContext,
+			scopeResult,
+			config: this.deps.config,
+			iteration,
+		});
+
+		const reportPath = await this.deps.taskStore.writeReport(
+			jiraKey,
+			`step-${stepId}-code-review.md`,
+			renderCodeReviewReport(review)
+		);
+
+		const reviewing =
+			progress.status === 'code_review' ? progress : updateTaskStatus(progress, 'code_review');
+		reviewing.currentStep = stepId;
+		reviewing.codeReviewIteration = iteration;
+		reviewing.lastRiskScore = review.riskScore;
+
+		if (review.passed) {
+			assertStepTransition(step.status, 'reviewed');
+			step.status = 'reviewed';
+			await this.deps.taskStore.savePlan(jiraKey, plan);
+		}
+
+		const nextProgress = updateTaskStatus(reviewing, 'coding');
+		await this.deps.taskStore.saveProgress(jiraKey, nextProgress);
+		await this.deps.taskStore.appendLog(
+			jiraKey,
+			`step-${stepId}.log`,
+			`Code reviewed step ${stepId} (iteration ${iteration}): score=${review.riskScore}, passed=${review.passed}`
+		);
+
+		const nextAction = review.passed
+			? `vibe commit ${jiraKey} --step ${stepId}`
+			: `Fix the ${review.findings.length} finding(s) in the code review report (remove over-engineering first), then rerun \`vibe code-review ${jiraKey} --step ${stepId}\`.`;
+
+		return {
+			jiraKey,
+			stepId,
+			review,
+			reportPath,
+			nextAction,
+		};
 	}
 
 	async commitStep(jiraKey: string, stepId: number): Promise<CommitStepResult> {
@@ -397,6 +483,12 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		}
 		if (step.status === 'committed') {
 			throw new AppError('STEP_ALREADY_COMMITTED', `Step ${stepId} is already committed.`);
+		}
+		if (step.status !== 'reviewed') {
+			throw new AppError(
+				'CODE_REVIEW_NOT_PASSED',
+				`Step ${stepId} has not passed code review. Run \`vibe code-review ${jiraKey} --step ${stepId}\` and resolve the findings before committing.`
+			);
 		}
 
 		assertValidCommitMessage(step.commitMessage);
@@ -531,12 +623,17 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 				case 'plan_approved':
 					return `vibe done ${jiraKey} --step ${pendingSteps[0] ?? 1}`;
 				case 'coding':
-					if (currentStepStatus && currentStepStatus !== 'committed' && progress.currentStep) {
+					if (progress.currentStep && currentStepStatus === 'reviewed') {
 						return `vibe commit ${jiraKey} --step ${progress.currentStep}`;
+					}
+					if (progress.currentStep && currentStepStatus && currentStepStatus !== 'committed') {
+						return `vibe code-review ${jiraKey} --step ${progress.currentStep}`;
 					}
 					return pendingSteps.length > 0
 						? `vibe done ${jiraKey} --step ${pendingSteps[0]}`
 						: `vibe verify ${jiraKey}`;
+				case 'code_review':
+					return `vibe code-review ${jiraKey} --step ${progress.currentStep ?? pendingSteps[0] ?? 1}`;
 				case 'verifying':
 					return `vibe verify ${jiraKey}`;
 				case 'pr_ready':

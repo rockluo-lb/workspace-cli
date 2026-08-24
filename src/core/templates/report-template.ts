@@ -1,4 +1,4 @@
-import type { CommandResult, PlanReview, PlanStep } from '../shared/types.js';
+import type { CodeReview, CommandResult, PlanReview, PlanStep } from '../shared/types.js';
 
 export function renderStepReport(step: PlanStep, sections: string[], verifyResults?: CommandResult[]): string {
 	const verify =
@@ -68,6 +68,48 @@ ${
 	review.approved
 		? '- 不确定因子已足够低，可进入执行阶段 (`vibe done <JIRA_KEY> --step 1`)。'
 		: '- 请携带上述未决问题询问用户，补充信息后重新运行 `vibe plan` 完善计划，再次 `vibe review`。'
+}
+`;
+}
+
+const FINDING_LABELS: Record<string, string> = {
+	'over-engineering': '过度设计',
+	convention: '项目规范',
+	complexity: '复杂度',
+	dependency: '依赖',
+	scope: '范围',
+};
+
+export function renderCodeReviewReport(review: CodeReview): string {
+	const findings =
+		review.findings.length > 0
+			? review.findings
+					.map((finding) => {
+						const label = FINDING_LABELS[finding.category] ?? finding.category;
+						const file = finding.file ? ` \`${finding.file}\`` : '';
+						return `- [${label}]${file} ${finding.message}`;
+					})
+					.join('\n')
+			: '- 无问题';
+
+	return `# Code Review for ${review.jiraKey} Step ${review.stepId}
+
+## Verdict
+- Iteration: ${review.iteration}
+- Risk score: ${review.riskScore} (threshold ${review.threshold})
+- Passed: ${review.passed ? 'yes' : 'no'}
+
+## Findings
+${findings}
+
+## Signals
+${review.signals.map((signal) => `- ${signal}`).join('\n') || '- None'}
+
+## Next
+${
+	review.passed
+		? '- 风险足够低，可以提交该步骤 (`vibe commit <JIRA_KEY> --step N`)。'
+		: '- 请先按上述发现精简/修正代码（优先消除过度设计），再重新运行 `vibe code-review <JIRA_KEY> --step N`。'
 }
 `;
 }

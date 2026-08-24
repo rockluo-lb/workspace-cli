@@ -46,6 +46,15 @@ describe('workflow integration', () => {
 		expect(run('git', ['status', '--short'], rootDir)).toBe('');
 
 		await fs.appendFile(path.join(rootDir, 'README.md'), 'Step 1 change\n', 'utf8');
+
+		await expect(app.orchestrator.commitStep('CRMCN-1234', 1)).rejects.toThrow(/not passed code review/);
+
+		const codeReview = await app.orchestrator.reviewCode('CRMCN-1234', 1);
+		expect(codeReview.review.passed).toBe(true);
+		expect(await fs.pathExists(path.join(stateRoot, 'tasks/CRMCN-1234/reports/step-1-code-review.md'))).toBe(
+			true
+		);
+
 		const commit = await app.orchestrator.commitStep('CRMCN-1234', 1);
 		expect(commit.message).toMatch(/^feat\(CRMCN-1234\): /);
 		expect(run('git', ['log', '-1', '--pretty=%s'], rootDir)).toBe(commit.message);

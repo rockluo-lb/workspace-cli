@@ -7,7 +7,8 @@ const taskTransitions: Record<TaskStatus, TaskStatus[]> = {
 	planned: ['reviewing', 'failed', 'aborted'],
 	reviewing: ['planned', 'plan_approved', 'failed', 'aborted'],
 	plan_approved: ['planned', 'coding', 'verifying', 'failed', 'aborted'],
-	coding: ['planned', 'plan_approved', 'verifying', 'failed', 'aborted'],
+	coding: ['planned', 'plan_approved', 'code_review', 'verifying', 'failed', 'aborted'],
+	code_review: ['coding', 'verifying', 'failed', 'aborted'],
 	verifying: ['pr_ready', 'failed', 'aborted'],
 	pr_ready: ['failed', 'aborted'],
 	aborted: [],
@@ -18,17 +19,19 @@ const taskTransitions: Record<TaskStatus, TaskStatus[]> = {
 		'reviewing',
 		'plan_approved',
 		'coding',
+		'code_review',
 		'verifying',
 		'aborted',
 	],
 };
 
 const stepTransitions: Record<PlanStepStatus, PlanStepStatus[]> = {
-	pending: ['coded', 'verified', 'committed', 'failed'],
-	coded: ['verified', 'committed', 'failed'],
-	verified: ['committed', 'failed'],
+	pending: ['coded', 'verified', 'reviewed', 'committed', 'failed'],
+	coded: ['verified', 'reviewed', 'committed', 'failed'],
+	verified: ['reviewed', 'committed', 'failed'],
+	reviewed: ['coded', 'verified', 'committed', 'failed'],
 	committed: [],
-	failed: ['pending', 'coded', 'verified', 'committed'],
+	failed: ['pending', 'coded', 'verified', 'reviewed', 'committed'],
 };
 
 export function canTransitionTaskStatus(from: TaskStatus, to: TaskStatus): boolean {
