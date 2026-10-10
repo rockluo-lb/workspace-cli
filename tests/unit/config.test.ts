@@ -3,7 +3,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadOrCreateConfig } from '../../src/core/shared/config.js';
 import { resolveWorkspaceStateDir } from '../../src/core/shared/state-paths.js';
-import { createTempDir, useTempStateRoot } from '../helpers/test-env.js';
+import { createTempDir, initGitRepo, run, useTempStateRoot } from '../helpers/test-env.js';
 
 describe('config loading', () => {
 	afterEach(() => {
@@ -70,5 +70,24 @@ describe('config loading', () => {
 		const config = await loadOrCreateConfig(rootDir);
 		expect(config.github.reviewers).toEqual(['alice', 'bob']);
 		expect(config.pr.aiDisclosure).toBe('Custom disclosure.');
+	});
+
+	it('infers verify scripts and the latest base branch for a new config', async () => {
+		const rootDir = await createTempDir('vibe-config-infer-');
+		await useTempStateRoot();
+		await fs.writeJson(path.join(rootDir, 'package.json'), {
+			scripts: {
+				'lint:ts': 'tsc --noEmit',
+				'specs:check': 'node scripts/check.js',
+				build: 'tsc',
+			},
+		});
+		await initGitRepo(rootDir);
+		run('git', ['checkout', '-b', 'latest'], rootDir);
+
+		const config = await loadOrCreateConfig(rootDir);
+		expect(config.baseBranch).toBe('latest');
+		expect(config.verify.stepCommands).toEqual(['pnpm lint:ts']);
+		expect(config.verify.taskCommands).toEqual(['pnpm lint:ts', 'pnpm specs:check', 'pnpm build']);
 	});
 });

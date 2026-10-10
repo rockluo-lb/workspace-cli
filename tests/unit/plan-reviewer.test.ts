@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { HeuristicPlanReviewer } from '../../src/core/planning/plan-reviewer.js';
 import { defaultConfig } from '../../src/core/shared/config.js';
-import type { ExecutionPlan, JiraIssueContext, PlanReviewInput, RepoContext } from '../../src/core/shared/types.js';
+import type { ExecutionPlan, ExternalLink, JiraIssueContext, PlanReviewInput, RepoContext } from '../../src/core/shared/types.js';
 
 function makeInput(overrides: {
 	plan?: Partial<ExecutionPlan>;
 	issue?: Partial<JiraIssueContext>;
 	repoContext?: Partial<RepoContext>;
 	iteration?: number;
+	links?: ExternalLink[];
+	target?: PlanReviewInput['target'];
 }): PlanReviewInput {
 	const issue: JiraIssueContext = {
 		key: 'CRMCN-1234',
@@ -50,11 +52,12 @@ function makeInput(overrides: {
 	return {
 		jiraKey: 'CRMCN-1234',
 		issue,
-		links: [],
+		links: overrides.links ?? [],
 		repoContext,
 		plan,
 		config: defaultConfig,
 		iteration: overrides.iteration ?? 1,
+		target: overrides.target,
 	};
 }
 
@@ -104,6 +107,32 @@ describe('HeuristicPlanReviewer', () => {
 			})
 		);
 		expect(review.approved).toBe(true);
+		expect(review.forcedApproval).toBe(true);
 		expect(review.signals.some((signal) => signal.includes('forcing approval'))).toBe(true);
+	});
+
+	it('blocks a migration plan that has no source repo or parity checklist', () => {
+		const review = reviewer.review(
+			makeInput({
+				issue: {
+					summary: '把旧项目功能迁移到 Jungle',
+					acceptanceCriteria: ['行为保持一致'],
+				},
+				target: { rootDir: '/repos/jungle' },
+			})
+		);
+		expect(review.approved).toBe(false);
+		expect(review.openQuestions.some((question) => question.prompt.includes('唯一改动目标'))).toBe(true);
+		expect(review.openQuestions.some((question) => question.prompt.includes('逐项对照'))).toBe(true);
+	});
+
+	it('asks for a figma node when the link has no node id', () => {
+		const review = reviewer.review(
+			makeInput({
+				links: [{ type: 'figma', url: 'https://www.figma.com/design/abc/File', source: 'description' }],
+			})
+		);
+		expect(review.approved).toBe(false);
+		expect(review.openQuestions.some((question) => question.prompt.includes('没有节点'))).toBe(true);
 	});
 });

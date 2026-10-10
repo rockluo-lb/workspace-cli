@@ -9,7 +9,13 @@ export function registerAbortCommand(program: Command, getApp: () => Promise<App
 		.description('Abort a task without deleting state')
 		.action(async (jiraKey: string) => {
 			const app = await getApp();
-			await app.orchestrator.abortTask(jiraKey);
-			printValue('Abort Task', { jiraKey, status: 'aborted' });
+			const result = await app.orchestrator.abortTask(jiraKey);
+			printValue('Abort Task', {
+				...result,
+				note:
+					result.commits.length > 0
+						? `Branch ${result.branch} still has ${result.commits.length} commit(s). Abort does not delete it.`
+						: undefined,
+			});
 		});
 }

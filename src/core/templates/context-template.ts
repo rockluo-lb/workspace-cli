@@ -9,7 +9,15 @@ export function renderContextMarkdown(input: {
 	const figma =
 		input.figmaContexts.length > 0
 			? input.figmaContexts
-					.map((item) => `- ${item.title ?? item.nodeName ?? 'Untitled'}${item.partial ? ' (partial)' : ''}`)
+					.map((item) => {
+						const texts = item.texts
+							.slice(0, 12)
+							.map((text) => text.replace(/\s+/g, ' ').trim().slice(0, 160))
+							.filter((text) => text.length > 0);
+						const partial = item.partial ? ' (partial — split into child frames before implementing)' : '';
+						const preview = texts.length > 0 ? `: ${texts.join(' | ')}` : '';
+						return `- ${item.title ?? item.nodeName ?? 'Untitled'}${partial}${preview}`;
+					})
 					.join('\n')
 			: '- None';
 	const confluence =

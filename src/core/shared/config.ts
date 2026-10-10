@@ -1,8 +1,48 @@
 import fs from 'fs-extra';
 import path from 'node:path';
+import { simpleGit } from 'simple-git';
 import { z } from 'zod';
 import { resolveWorkspaceStateDir } from './state-paths.js';
 import type { VibeConfig } from './types.js';
+
+const VERIFY_SCRIPT_PRIORITY = ['lint:ts', 'lint:js:check', 'lint:css:check', 'typecheck', 'specs:check', 'build'];
+
+export async function inferProjectDefaults(rootDir: string): Promise<{
+	baseBranch?: string;
+	verify?: VibeConfig['verify'];
+}> {
+	const packageJsonPath = path.join(rootDir, 'package.json');
+	let verify: VibeConfig['verify'] | undefined;
+	if (await fs.pathExists(packageJsonPath)) {
+		const packageJson = (await fs.readJson(packageJsonPath)) as { scripts?: Record<string, string> };
+		const scripts = Object.keys(packageJson.scripts ?? {});
+		const selected = VERIFY_SCRIPT_PRIORITY.filter((name) => scripts.includes(name));
+		if (selected.length > 0) {
+			const packageManager = (await fs.pathExists(path.join(rootDir, 'package-lock.json')))
+				? 'npm'
+				: (await fs.pathExists(path.join(rootDir, 'yarn.lock')))
+					? 'yarn'
+					: 'pnpm';
+			const stepNames = selected.filter((name) => name.startsWith('lint') || name === 'typecheck');
+			verify = {
+				stepCommands: (stepNames.length > 0 ? stepNames : selected.slice(0, 1)).map(
+					(name) => `${packageManager} ${name}`
+				),
+				taskCommands: selected.map((name) => `${packageManager} ${name}`),
+			};
+		}
+	}
+
+	let baseBranch: string | undefined;
+	if (await fs.pathExists(path.join(rootDir, '.git'))) {
+		const branches = await simpleGit(rootDir).branchLocal();
+		if (branches.all.includes('latest')) {
+			baseBranch = 'latest';
+		}
+	}
+
+	return { baseBranch, verify };
+}
 
 function resolveRepositoryReviewers(
 	repository?: string,
@@ -92,8 +132,14 @@ export async function loadOrCreateConfig(rootDir: string, stateRoot = resolveWor
 	await fs.ensureDir(path.dirname(configPath));
 
 	if (!(await fs.pathExists(configPath))) {
-		await fs.writeJson(configPath, defaultConfig, { spaces: 2 });
-		return defaultConfig;
+		const inferred = await inferProjectDefaults(rootDir);
+		const created = configSchema.parse({
+			...defaultConfig,
+			baseBranch: inferred.baseBranch ?? defaultConfig.baseBranch,
+			verify: inferred.verify ?? defaultConfig.verify,
+		});
+		await fs.writeJson(configPath, created, { spaces: 2 });
+		return created;
 	}
 
 	const raw = await fs.readJson(configPath);

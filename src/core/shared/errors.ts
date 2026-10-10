@@ -14,6 +14,7 @@ const EXIT_CODES: Record<AppErrorCode, number> = {
 	PLAN_NOT_APPROVED: 4,
 	CODE_REVIEW_NOT_PASSED: 5,
 	CAPABILITY_UNAVAILABLE: 3,
+	TARGET_NOT_CONFIRMED: 4,
 };
 
 export class AppError extends Error {

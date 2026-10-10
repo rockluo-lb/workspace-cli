@@ -32,7 +32,8 @@ export type AppErrorCode =
 	| 'STATE_CORRUPTED'
 	| 'PLAN_NOT_APPROVED'
 	| 'CODE_REVIEW_NOT_PASSED'
-	| 'CAPABILITY_UNAVAILABLE';
+	| 'CAPABILITY_UNAVAILABLE'
+	| 'TARGET_NOT_CONFIRMED';
 
 export interface ExternalLink {
 	type: LinkType;
@@ -240,6 +241,8 @@ export interface ProgressState {
 	lastUncertaintyScore?: number;
 	codeReviewIteration?: number;
 	lastRiskScore?: number;
+	targetRoot?: string;
+	sourceRoot?: string;
 }
 
 export interface VibeConfig {
@@ -294,6 +297,35 @@ export interface StartTaskResult {
 	currentBranch: string;
 	taskDir: string;
 	warnings: string[];
+	targetRoot: string;
+	sourceRoot?: string;
+	confirmation: string;
+}
+
+export interface StartTaskOptions {
+	sourceRoot?: string;
+	confirmTarget?: boolean;
+}
+
+export interface AbortTaskResult {
+	jiraKey: string;
+	status: 'aborted';
+	branch: string;
+	commits: ProgressCommit[];
+}
+
+export interface ScopeStepResult {
+	jiraKey: string;
+	stepId: number;
+	expectedFiles: string[];
+}
+
+export interface AdoptTaskResult {
+	jiraKey: string;
+	branch: string;
+	status: TaskStatus;
+	commits: ProgressCommit[];
+	nextAction: string;
 }
 
 export interface ContextResult {
@@ -323,6 +355,7 @@ export interface PlanReview {
 	uncertaintyScore: number;
 	threshold: number;
 	approved: boolean;
+	forcedApproval: boolean;
 	openQuestions: OpenQuestion[];
 	signals: string[];
 	iteration: number;
@@ -476,6 +509,10 @@ export interface PlanReviewInput {
 	plan: ExecutionPlan;
 	config: VibeConfig;
 	iteration: number;
+	target?: {
+		rootDir: string;
+		sourceRoot?: string;
+	};
 }
 
 export interface PlanReviewer {
@@ -511,6 +548,7 @@ export interface LocalGitService {
 	addFiles(files: string[]): Promise<void>;
 	commit(message: string): Promise<string>;
 	getCurrentBranch(): Promise<string>;
+	listCommitsSince(baseBranch: string): Promise<Array<{ sha: string; message: string }>>;
 }
 
 export interface VerifyService {
@@ -535,7 +573,7 @@ export interface TaskStore {
 }
 
 export interface WorkflowOrchestrator {
-	startTask(jiraKey: string): Promise<StartTaskResult>;
+	startTask(jiraKey: string, options?: StartTaskOptions): Promise<StartTaskResult>;
 	buildContext(jiraKey: string): Promise<ContextResult>;
 	generatePlan(jiraKey: string): Promise<PlanResult>;
 	reviewPlan(jiraKey: string): Promise<ReviewResult>;
@@ -545,7 +583,9 @@ export interface WorkflowOrchestrator {
 	verifyTask(jiraKey: string): Promise<VerifyResult>;
 	preparePR(jiraKey: string): Promise<PRResult>;
 	resumeTask(jiraKey: string): Promise<ResumeResult>;
-	abortTask(jiraKey: string): Promise<void>;
+	abortTask(jiraKey: string): Promise<AbortTaskResult>;
+	addStepScope(jiraKey: string, stepId: number, files: string[]): Promise<ScopeStepResult>;
+	adoptTask(jiraKey: string): Promise<AdoptTaskResult>;
 }
 
 export interface WorkflowOrchestratorDeps {

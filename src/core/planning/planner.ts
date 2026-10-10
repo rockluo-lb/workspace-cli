@@ -1,10 +1,10 @@
 import type { AIPlanInput, AIProvider, ExecutionPlan, PlanStep, VibeConfig } from '../shared/types.js';
-import { renderBranchName, renderCommitMessage } from '../shared/validation.js';
+import { commitBody, renderBranchName, renderCommitMessage } from '../shared/validation.js';
 import { renderPlanMarkdown } from '../templates/plan-template.js';
 
 function normalizeStep(jiraKey: string, config: VibeConfig, step: Partial<PlanStep>, index: number): PlanStep {
 	const title = step.title?.trim() || `Step ${index + 1}`;
-	const commitBody = step.commitMessage?.replace(/^feat\(CRMCN-\d+\):\s*/, '') || title.toLowerCase();
+	const body = commitBody(step.commitMessage, title.toLowerCase());
 	return {
 		id: index + 1,
 		title,
@@ -13,7 +13,7 @@ function normalizeStep(jiraKey: string, config: VibeConfig, step: Partial<PlanSt
 		expectedFiles: (step.expectedFiles ?? []).slice(0, config.planning.maxFilesPerStep),
 		verifyCommands:
 			step.verifyCommands && step.verifyCommands.length > 0 ? step.verifyCommands : config.verify.stepCommands,
-		commitMessage: renderCommitMessage(jiraKey, commitBody, config.commitPattern),
+		commitMessage: renderCommitMessage(jiraKey, body, config.commitPattern),
 		status: 'pending',
 	};
 }

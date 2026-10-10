@@ -2,6 +2,8 @@ import path from 'node:path';
 import { AppError } from '../shared/errors.js';
 import type {
 	CodeReviewResult,
+	AbortTaskResult,
+	AdoptTaskResult,
 	CommitStepResult,
 	ContextResult,
 	ExecuteStepResult,
@@ -13,13 +15,23 @@ import type {
 	PRResult,
 	ResumeResult,
 	ReviewResult,
+	ScopeStepResult,
+	StartTaskOptions,
 	StartTaskResult,
 	TaskStatus,
 	VerifyResult,
 	WorkflowOrchestrator,
 	WorkflowOrchestratorDeps,
 } from '../shared/types.js';
-import { assertValidCommitMessage, assertValidJiraKey, renderBranchName } from '../shared/validation.js';
+import { isMigrationText, issuePlainText, parityChecklistTemplate } from '../shared/migration.js';
+import { slimIssue } from '../shared/issue-text.js';
+import {
+	assertValidCommitMessage,
+	assertValidJiraKey,
+	commitPatternFor,
+	renderBranchName,
+	renderCommitMessage,
+} from '../shared/validation.js';
 import { assertStepTransition, assertTaskTransition } from '../state/state-machine.js';
 import { renderContextMarkdown } from '../templates/context-template.js';
 import { renderPlanMarkdown } from '../templates/plan-template.js';
@@ -84,14 +96,26 @@ function commentBodyLinks(body: string): ExternalLink[] {
 export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 	constructor(private readonly deps: WorkflowOrchestratorDeps) {}
 
-	async startTask(jiraKey: string): Promise<StartTaskResult> {
-		assertValidJiraKey(jiraKey);
+	async startTask(jiraKey: string, options?: StartTaskOptions): Promise<StartTaskResult> {
+		const prefixes = this.deps.config.jira.allowedPrefixes;
+		assertValidJiraKey(jiraKey, prefixes);
 		await this.deps.gitService.ensureCleanWorktree();
 		const initialBranch = await this.deps.gitService.getCurrentBranch();
 		const fallbackBaseBranch = this.deps.config.baseBranch;
 		const baseBranch = initialBranch || fallbackBaseBranch;
 
-		const issue = await this.deps.tools.jira.getIssue(jiraKey);
+		const issue = slimIssue(await this.deps.tools.jira.getIssue(jiraKey));
+		if (isMigrationText(issuePlainText(issue)) && !options?.confirmTarget) {
+			throw new AppError(
+				'TARGET_NOT_CONFIRMED',
+				[
+					'This issue looks like a cross-repo migration.',
+					`Target repository: ${this.deps.rootDir}`,
+					'Confirm this directory is the only repo to modify, then re-run with --confirm-target.',
+					'Pass --source <path> when an older repository should stay read-only.',
+				].join('\n')
+			);
+		}
 		const directLinks = await this.deps.tools.jira.getIssueLinks(jiraKey);
 		const comments = await this.deps.tools.jira.getIssueComments(jiraKey);
 		const commentLinks = comments.flatMap((comment) => commentBodyLinks(comment.body));
@@ -128,13 +152,30 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			completedSteps: [],
 			commits: [],
 			status: 'initialized',
+			targetRoot: this.deps.rootDir,
+			sourceRoot: options?.sourceRoot,
 		};
 		await this.deps.taskStore.saveProgress(jiraKey, progress);
 		await this.deps.taskStore.appendLog(
 			jiraKey,
 			'start.log',
-			`Initialized ${jiraKey} from ${initialBranch} via ${baseBranch} onto ${currentBranch}`
+			`Initialized ${jiraKey} from ${initialBranch} via ${baseBranch} onto ${currentBranch}; target=${this.deps.rootDir}; source=${options?.sourceRoot ?? 'none'}`
 		);
+		if (isMigrationText(issuePlainText(issue))) {
+			await this.deps.taskStore.writeReport(
+				jiraKey,
+				'parity.md',
+				parityChecklistTemplate(jiraKey, this.deps.rootDir, options?.sourceRoot)
+			);
+		}
+		const confirmation = [
+			`Target repository: ${this.deps.rootDir}`,
+			`Base branch: ${baseBranch}`,
+			`Feature branch: ${branch}`,
+			options?.sourceRoot
+				? `Source repository (read-only): ${options.sourceRoot}`
+				: 'Source repository: none (current repo is the write target)',
+		].join('\n');
 
 		return {
 			jiraKey,
@@ -144,6 +185,9 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			currentBranch,
 			taskDir: path.join(this.deps.stateRoot, 'tasks', jiraKey),
 			warnings,
+			targetRoot: this.deps.rootDir,
+			sourceRoot: options?.sourceRoot,
+			confirmation,
 		};
 	}
 
@@ -291,6 +335,10 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			plan,
 			config: this.deps.config,
 			iteration,
+			target: {
+				rootDir: progress.targetRoot ?? this.deps.rootDir,
+				sourceRoot: progress.sourceRoot,
+			},
 		});
 
 		const reportPath = await this.deps.taskStore.writeReport(jiraKey, 'review.md', renderReviewReport(review));
@@ -300,9 +348,11 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		reviewing.lastUncertaintyScore = review.uncertaintyScore;
 		await this.deps.taskStore.saveProgress(jiraKey, reviewing);
 
-		const nextAction = review.approved
-			? `vibe done ${jiraKey} --step ${plan.steps[0]?.id ?? 1}`
-			: `Ask the user the ${review.openQuestions.length} open question(s), then rerun \`vibe plan ${jiraKey}\` and \`vibe review ${jiraKey}\`.`;
+		const nextAction = review.forcedApproval
+			? `Plan review was force-approved with open questions. Confirm them with the user before \`vibe done ${jiraKey} --step ${plan.steps[0]?.id ?? 1}\`.`
+			: review.approved
+				? `vibe done ${jiraKey} --step ${plan.steps[0]?.id ?? 1}`
+				: `Ask the user the ${review.openQuestions.length} open question(s), then rerun \`vibe plan ${jiraKey}\` and \`vibe review ${jiraKey}\`.`;
 
 		if (review.approved) {
 			const approved = updateTaskStatus(reviewing, 'plan_approved');
@@ -363,6 +413,25 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			dryRun: options?.dryRun,
 			maxFiles: this.deps.config.planning.maxFilesPerStep,
 		});
+
+		const failedVerify = (result.verifyResults ?? []).filter((item) => item.code !== 0);
+		if (failedVerify.length > 0) {
+			if (step.status !== 'failed') {
+				assertStepTransition(step.status, 'failed');
+				step.status = 'failed';
+			}
+			await this.deps.taskStore.savePlan(jiraKey, plan);
+			const failing = progress.status === 'failed' ? progress : updateTaskStatus(progress, 'failed');
+			failing.currentStep = stepId;
+			failing.lastError = failedVerify.map((item) => `${item.command} exited ${item.code}`).join('; ');
+			await this.deps.taskStore.saveProgress(jiraKey, failing);
+			await this.deps.taskStore.writeReport(
+				jiraKey,
+				`step-${stepId}-report.md`,
+				renderStepReport(step, [result.summary, ...result.warnings], result.verifyResults)
+			);
+			throw new AppError('VERIFY_FAILED', `Step ${stepId} verification failed: ${failing.lastError}`);
+		}
 
 		const nextStatus = nextStatusForExecution(result);
 		assertStepTransition(step.status, nextStatus);
@@ -491,7 +560,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			);
 		}
 
-		assertValidCommitMessage(step.commitMessage);
+		assertValidCommitMessage(step.commitMessage, this.deps.config.jira.allowedPrefixes);
 		const changedFiles = await this.deps.gitService.getDiffFiles();
 		if (changedFiles.length === 0) {
 			throw new AppError('DIFF_OUT_OF_SCOPE', `No diff found for step ${stepId}.`);
@@ -653,7 +722,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		};
 	}
 
-	async abortTask(jiraKey: string): Promise<void> {
+	async abortTask(jiraKey: string): Promise<AbortTaskResult> {
 		const progress = requireValue(
 			await this.deps.taskStore.loadProgress(jiraKey),
 			'STATE_CORRUPTED',
@@ -661,6 +730,132 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		);
 		const aborted = updateTaskStatus(progress, 'aborted');
 		await this.deps.taskStore.saveProgress(jiraKey, aborted);
-		await this.deps.taskStore.appendLog(jiraKey, 'abort.log', `Aborted task ${jiraKey}`);
+		const commitLine =
+			progress.commits.length > 0
+				? ` Branch ${progress.branch} still has ${progress.commits.length} commit(s) and was not deleted.`
+				: '';
+		await this.deps.taskStore.appendLog(jiraKey, 'abort.log', `Aborted task ${jiraKey}.${commitLine}`);
+		return {
+			jiraKey,
+			status: 'aborted',
+			branch: progress.branch,
+			commits: progress.commits,
+		};
+	}
+
+	async addStepScope(jiraKey: string, stepId: number, files: string[]): Promise<ScopeStepResult> {
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
+		const step = plan.steps.find((item) => item.id === stepId);
+		if (!step) {
+			throw new AppError('STEP_NOT_FOUND', `Step ${stepId} not found for ${jiraKey}`);
+		}
+		if (step.status === 'committed') {
+			throw new AppError('STEP_ALREADY_COMMITTED', `Step ${stepId} is already committed.`);
+		}
+		const normalized = files.map((file) => {
+			const relative = file.replace(/\\/g, '/').replace(/^\.\//, '');
+			if (relative.startsWith('/') || relative.split('/').includes('..')) {
+				throw new AppError('DIFF_OUT_OF_SCOPE', `Scope file must stay inside the repository: ${file}`);
+			}
+			return relative;
+		});
+		step.expectedFiles = [...new Set([...step.expectedFiles, ...normalized])].sort();
+		await this.deps.taskStore.savePlan(jiraKey, plan);
+		await this.deps.taskStore.appendLog(
+			jiraKey,
+			`step-${stepId}.log`,
+			`Added scope files for step ${stepId}: ${normalized.join(', ')}`
+		);
+		return {
+			jiraKey,
+			stepId,
+			expectedFiles: step.expectedFiles,
+		};
+	}
+
+	async adoptTask(jiraKey: string): Promise<AdoptTaskResult> {
+		const prefixes = this.deps.config.jira.allowedPrefixes;
+		assertValidJiraKey(jiraKey, prefixes);
+		const existing = await this.deps.taskStore.loadProgress(jiraKey);
+		if (existing && existing.status !== 'aborted') {
+			throw new AppError(
+				'STATE_CORRUPTED',
+				`Task ${jiraKey} already has state (${existing.status}). Run \`vibe resume ${jiraKey}\`.`
+			);
+		}
+		const branch = renderBranchName(jiraKey, this.deps.config.branchPattern);
+		const currentBranch = await this.deps.gitService.getCurrentBranch();
+		if (currentBranch !== branch) {
+			throw new AppError(
+				'STATE_CORRUPTED',
+				`Current branch is ${currentBranch}. Check out ${branch} before adopting ${jiraKey}.`
+			);
+		}
+		const pattern = commitPatternFor(prefixes);
+		const matched = (await this.deps.gitService.listCommitsSince(this.deps.config.baseBranch)).filter((commit) =>
+			pattern.test(commit.message)
+		);
+		const taskCommits = matched.filter((commit) => commit.message.includes(`(${jiraKey})`));
+		if (taskCommits.length === 0) {
+			throw new AppError(
+				'STATE_CORRUPTED',
+				`No commits for ${jiraKey} were found on ${branch}. Adoption needs commits that match the configured message pattern.`
+			);
+		}
+		const issue = await this.deps.taskStore.loadIssue(jiraKey);
+		if (!issue) {
+			await this.deps.taskStore.saveIssue(jiraKey, {
+				key: jiraKey,
+				summary: `Adopted ${jiraKey}`,
+				acceptanceCriteria: [],
+				labels: [],
+				links: [],
+			});
+		}
+		const steps = taskCommits.map((commit, index) => ({
+			id: index + 1,
+			title: commit.message,
+			description: 'Recovered from an existing commit.',
+			expectedFiles: [] as string[],
+			verifyCommands: this.deps.config.verify.stepCommands,
+			commitMessage: commit.message.includes(`(${jiraKey})`)
+				? commit.message
+				: renderCommitMessage(jiraKey, commit.message, this.deps.config.commitPattern),
+			status: 'committed' as const,
+		}));
+		await this.deps.taskStore.savePlan(jiraKey, {
+			jiraKey,
+			branch,
+			summary: `Adopted plan for ${jiraKey}`,
+			assumptions: ['Recovered from git history after local task state was missing.'],
+			risks: [],
+			steps,
+		});
+		const progress: ProgressState = {
+			jiraKey,
+			branch,
+			completedSteps: steps.map((step) => step.id),
+			commits: taskCommits.map((commit, index) => ({
+				step: index + 1,
+				sha: commit.sha,
+				message: commit.message,
+			})),
+			status: 'verifying',
+			currentStep: steps.length,
+			targetRoot: this.deps.rootDir,
+		};
+		await this.deps.taskStore.saveProgress(jiraKey, progress);
+		await this.deps.taskStore.appendLog(jiraKey, 'adopt.log', `Adopted ${taskCommits.length} commit(s) on ${branch}`);
+		return {
+			jiraKey,
+			branch,
+			status: progress.status,
+			commits: progress.commits,
+			nextAction: `vibe verify ${jiraKey}`,
+		};
 	}
 }

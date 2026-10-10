@@ -22,6 +22,12 @@ export class FigmaMcpProvider implements FigmaProvider {
 			return fixture;
 		}
 
+		const layoutHints = ['Use existing spacing tokens', 'Preserve current component patterns'];
+		if (!ref.nodeId) {
+			layoutHints.unshift(
+				'No Figma node selected. Resolve a frame node before implementing; file-level context is metadata only.'
+			);
+		}
 		return {
 			title: 'Synthetic Figma Context',
 			fileId: ref.fileId,
@@ -30,7 +36,7 @@ export class FigmaMcpProvider implements FigmaProvider {
 			nodeName: 'Mock Node',
 			texts: ['Synthetic design text'],
 			components: ['Card', 'Form', 'Button'],
-			layoutHints: ['Use existing spacing tokens', 'Preserve current component patterns'],
+			layoutHints,
 			partial: true,
 		};
 	}

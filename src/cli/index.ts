@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import process from 'node:process';
 import { AppError, toAppError } from '../core/shared/errors.js';
 import { registerAbortCommand } from './commands/abort.js';
+import { registerAdoptCommand } from './commands/adopt.js';
 import { registerCleanCommand } from './commands/clean.js';
 import { registerCodeReviewCommand } from './commands/code-review.js';
 import { registerCodeCommand } from './commands/code.js';
@@ -13,7 +14,9 @@ import { registerPlanCommand } from './commands/plan.js';
 import { registerPrCommand } from './commands/pr.js';
 import { registerResumeCommand } from './commands/resume.js';
 import { registerReviewCommand } from './commands/review.js';
+import { registerScopeCommand } from './commands/scope.js';
 import { registerShowCommand } from './commands/show.js';
+import { registerSkillCommand } from './commands/skill.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerVerifyCommand } from './commands/verify.js';
 import { renderErrorScreen } from './render.js';
@@ -25,7 +28,10 @@ async function main(): Promise<void> {
 
 	program.name('vibe').description('Jira-driven step-based vibe coding workflow CLI').version('0.1.0');
 
+	registerSkillCommand(program);
 	registerStartCommand(program, getApp);
+	registerAdoptCommand(program, getApp);
+	registerScopeCommand(program, getApp);
 	registerContextCommand(program, getApp);
 	registerPlanCommand(program, getApp);
 	registerReviewCommand(program, getApp);

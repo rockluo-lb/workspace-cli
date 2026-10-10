@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { slimIssue } from '../../src/core/shared/issue-text.js';
 import {
 	assertValidBranch,
 	assertValidCommitMessage,
 	assertValidJiraKey,
+	branchPatternFor,
 	BRANCH_PATTERN,
+	commitPatternFor,
 	COMMIT_PATTERN,
 	JIRA_KEY_PATTERN,
 	renderBranchName,
@@ -36,6 +39,28 @@ describe('validation rules', () => {
 		expect(COMMIT_PATTERN.test('chore(CRMCN-1234): update deps')).toBe(false);
 		expect(COMMIT_PATTERN.test('docs(CRMCN-1234): add readme')).toBe(false);
 		expect(() => assertValidCommitMessage('chore(CRMCN-1234): update deps')).toThrow();
+	});
+
+	it('accepts configured prefixes other than CRMCN', () => {
+		const prefixes = ['PJ', 'CRMCN'];
+		expect(branchPatternFor('feat/{jiraKey}', prefixes).test('feat/PJ-914')).toBe(true);
+		expect(commitPatternFor(prefixes).test('refactor(PJ-914): align dashboard')).toBe(true);
+		expect(() => assertValidJiraKey('PJ-914', prefixes)).not.toThrow();
+		expect(() => assertValidBranch('feat/PJ-914', 'feat/{jiraKey}', prefixes)).not.toThrow();
+		expect(() => assertValidCommitMessage('refactor(PJ-914): align dashboard', prefixes)).not.toThrow();
+		expect(() => assertValidJiraKey('PJ-914')).toThrow(/Allowed prefixes: CRMCN/);
+	});
+
+	it('strips html and blob urls from issue descriptions', () => {
+		const issue = slimIssue({
+			key: 'PJ-914',
+			summary: '页面重构',
+			description: '<p>Admin</p> blob:https://media.example/file ![](blob:https://media.example/a)',
+			acceptanceCriteria: [],
+			labels: [],
+			links: [],
+		});
+		expect(issue.description).toBe('Admin');
 	});
 
 	it('renders templates', () => {

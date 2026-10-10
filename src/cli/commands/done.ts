@@ -9,7 +9,7 @@ export function registerDoneCommand(program: Command, getApp: () => Promise<AppC
 		.argument('<jiraKey>')
 		.requiredOption('--step <number>', 'Step number', (value) => Number.parseInt(value, 10))
 		.option('--dry-run', 'Do not apply source changes')
-		.description('Execute a plan step, code review it, and commit when the review passes')
+		.description('Execute a plan step, and commit only after verification and code review pass')
 		.action(async (jiraKey: string, options: { step: number; dryRun?: boolean }) => {
 			const app = await getApp();
 			const codeResult = await app.orchestrator.executeStep(jiraKey, options.step, {

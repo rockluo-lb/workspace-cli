@@ -1,4 +1,5 @@
-import type { OpenQuestion, PlanReview, PlanReviewInput, PlanReviewer } from '../shared/types.js';
+import { isMigrationText, issuePlainText } from '../shared/migration.js';
+import type { ExecutionPlan, OpenQuestion, PlanReview, PlanReviewInput, PlanReviewer } from '../shared/types.js';
 
 const TBD_TOKENS = ['tbd', 'todo', '待定', '待确认', '不确定', 'unclear', 'unknown', '?', '待补充'];
 const DIVERGENCE_TOKENS = ['差异', 'divergence', 'inconsistent', '冲突', 'conflict', '不一致', '歧义', 'ambiguous'];
@@ -9,6 +10,15 @@ function hasUncertainWording(text: string | undefined): boolean {
 	}
 	const lower = text.toLowerCase();
 	return TBD_TOKENS.some((token) => lower.includes(token));
+}
+
+function planText(plan: ExecutionPlan): string {
+	return [
+		plan.summary,
+		...plan.assumptions,
+		...plan.risks,
+		...plan.steps.map((step) => `${step.title}\n${step.description}`),
+	].join('\n');
 }
 
 function hasDivergenceWording(text: string | undefined): boolean {
@@ -92,7 +102,31 @@ export class HeuristicPlanReviewer implements PlanReviewer {
 			signals.push('repoContext.partial=true');
 		}
 
+		const migration = isMigrationText(issuePlainText(issue));
+		const writtenPlan = planText(plan);
+		if (migration && !input.target?.sourceRoot && !/目标仓库|target repository|唯一写入/i.test(writtenPlan)) {
+			addQuestion({
+				category: 'divergence',
+				prompt: `该工单像是跨仓库迁移。当前写入仓库是 ${input.target?.rootDir ?? repoContext.repoName}。请确认它是唯一改动目标，并用 --source 标出只读旧仓库。`,
+				weight: 0.25,
+			});
+		}
+		if (migration && !/parity|对照|迁移清单|逐项/i.test(writtenPlan)) {
+			addQuestion({
+				category: 'verification',
+				prompt: '迁移计划还没有逐项对照清单。请补充旧入口、新入口、差异类型和验证证据，未联调项保持未完成。',
+				weight: 0.25,
+			});
+		}
+
 		const figmaLinks = links.filter((link) => link.type === 'figma');
+		if (figmaLinks.length > 0 && figmaLinks.every((link) => !link.metadata?.nodeId)) {
+			addQuestion({
+				category: 'context',
+				prompt: 'Figma 链接没有节点。请先定位到具体画板再实现；整文件上下文只够做目录，不够还原界面。',
+				weight: 0.22,
+			});
+		}
 		if (figmaLinks.length === 0 && /ui|界面|页面|design|figma|视觉|样式/i.test(issue.summary)) {
 			addQuestion({
 				category: 'context',
@@ -113,9 +147,10 @@ export class HeuristicPlanReviewer implements PlanReviewer {
 		const uncertaintyScore = Number(Math.min(score, 1).toFixed(2));
 		const threshold = config.review.uncertaintyThreshold;
 		const reachedMaxIterations = iteration >= config.review.maxIterations;
-		const approved = uncertaintyScore <= threshold || reachedMaxIterations;
+		const forcedApproval = reachedMaxIterations && uncertaintyScore > threshold;
+		const approved = uncertaintyScore <= threshold || forcedApproval;
 
-		if (reachedMaxIterations && uncertaintyScore > threshold) {
+		if (forcedApproval) {
 			signals.push(`reached max review iterations (${config.review.maxIterations}); forcing approval`);
 		}
 
@@ -126,6 +161,7 @@ export class HeuristicPlanReviewer implements PlanReviewer {
 			uncertaintyScore,
 			threshold,
 			approved,
+			forcedApproval,
 			openQuestions: openQuestions.sort((a, b) => b.weight - a.weight),
 			signals,
 			iteration,

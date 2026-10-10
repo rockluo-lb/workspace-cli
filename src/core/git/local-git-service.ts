@@ -168,4 +168,24 @@ export class SimpleGitService implements LocalGitService {
 		const branch = await this.git.branchLocal();
 		return branch.current;
 	}
+
+	async listCommitsSince(baseBranch: string): Promise<Array<{ sha: string; message: string }>> {
+		const local = await this.git.branchLocal();
+		const args = ['log', '--pretty=format:%H%x09%s'];
+		if (local.all.includes(baseBranch)) {
+			args.splice(1, 0, `${baseBranch}..HEAD`);
+		}
+		const output = await this.git.raw(args);
+		return output
+			.split('\n')
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0)
+			.flatMap((line) => {
+				const tab = line.indexOf('\t');
+				if (tab <= 0) {
+					return [];
+				}
+				return [{ sha: line.slice(0, tab), message: line.slice(tab + 1) }];
+			});
+	}
 }

@@ -1,5 +1,7 @@
 # Vibe-CLI Skill Guide for AI Agents
 
+Run `vibe skill` and follow this guide before any other `vibe` command. The command prints this document. Do not start, plan, review, or commit through vibe-cli until you have read it.
+
 ## Overview
 
 `vibe-cli` is a Jira-driven step-based vibe coding workflow CLI. It orchestrates the full lifecycle of a development task: from Jira issue analysis, through planning and execution, to PR generation. As an AI agent, you use vibe-cli to manage structured, auditable, and incremental code changes tied to Jira tickets.
@@ -25,6 +27,7 @@ This workflow has **two enforced loops**:
 
 | Phase | Command | Description |
 |-------|---------|-------------|
+| 0. Prerequisite | `vibe skill` | Print this guide. Read it before every other command |
 | 1. Initialize | `vibe start <JIRA_KEY>` | Create branch, fetch Jira issue, save context |
 | 2. Context | `vibe context <JIRA_KEY>` | Resolve Figma/Confluence links, analyze repo and project conventions |
 | 3. Plan | `vibe plan <JIRA_KEY>` | Generate step-by-step execution plan |
@@ -101,16 +104,28 @@ Before you review (and before you fix findings), gather both kinds of standards:
 
 ## Command Reference
 
+### `vibe skill`
+
+**Purpose:** Print this skill. This is the prerequisite for agents. Run it before `vibe start` or any later command, and follow the printed guide.
+
+**Usage:**
+```bash
+vibe skill
+```
+
+---
+
 ### `vibe start <JIRA_KEY>`
 
 **Purpose:** Initialize a new task from a Jira issue.
 
 **What it does:**
-1. Validates the Jira key format (e.g., `CRMCN-11400`)
+1. Validates the Jira key against `jira.allowedPrefixes` in the workspace config (default prefix: `CRMCN`)
 2. Ensures git worktree is clean
 3. Fetches the Jira issue, its links (Figma, Confluence), and comments
-4. Creates a feature branch (pattern: `feat/<JIRA_KEY>`)
-5. Saves issue data and links to local state
+4. For a cross-repo migration, stops until `--confirm-target` is passed. Optional `--source <path>` records the read-only legacy repo
+5. Creates a feature branch from `branchPattern` (default: `feat/<JIRA_KEY>`)
+6. Prints the write target, base branch, and feature branch, then saves issue data and links
 
 **Usage:**
 ```bash
@@ -119,7 +134,8 @@ vibe start CRMCN-11400
 
 **Prerequisites:**
 - Git worktree must be clean (no uncommitted changes)
-- Jira key must match pattern: `<PREFIX>-<NUMBER>` (default prefix: `CRMCN`)
+- Jira key must match `<PREFIX>-<NUMBER>` for a prefix in `jira.allowedPrefixes`
+- Migration issues require `vibe start <JIRA_KEY> --confirm-target`. Add `--source <legacy-repo>` when the old repo is only a reference
 
 **After this:** Run `vibe context <JIRA_KEY>`
 
@@ -253,6 +269,7 @@ vibe done CRMCN-11400 --step 2
 | `--dry-run` | Optional. Skip applying source changes during the execute phase |
 
 **Key behaviors:**
+- If a step verify command exits non-zero, `done` stops with `VERIFY_FAILED`. Nothing is reviewed or committed
 - You do NOT need to run `git add` before this command — it auto-stages
 - You do NOT need to run `vibe code` / `vibe code-review` / `vibe commit` separately — `done` chains all three
 - If code review fails, fix the findings and rerun `vibe done` (or `vibe code-review` then `vibe commit`)
@@ -334,6 +351,18 @@ vibe resume CRMCN-11400
 
 ---
 
+### `vibe scope <JIRA_KEY> --step <N> --file <path>`
+
+**Purpose:** Add a relative path to a step's `expectedFiles` before commit. Use this when verification fixes land outside the original file list. Repeat `--file` for more than one path.
+
+```bash
+vibe scope PJ-914 --step 5 --file src/router/routes.tsx --file src/view/export-dialog.tsx
+```
+
+### `vibe adopt <JIRA_KEY>`
+
+**Purpose:** Rebuild task state from commits already on `feat/<JIRA_KEY>` when the local task directory is missing. Check out that branch first. Does not overwrite an active task; run `vibe resume` instead.
+
 ### `vibe abort <JIRA_KEY>`
 
 **Purpose:** Abort a task. The task can be re-started with `vibe start`.
@@ -363,6 +392,7 @@ Here is the complete workflow an AI agent should follow:
 ### Phase 1: Task Setup
 
 ```
+0. vibe skill                     # Prerequisite: read this guide before continuing
 1. vibe start <JIRA_KEY>          # Initialize task, create branch
 2. vibe context <JIRA_KEY>        # Build context from Jira/Figma/Confluence/repo
 ```
@@ -517,7 +547,8 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 
 | Error Code | Meaning | Resolution |
 |------------|---------|------------|
-| `INVALID_JIRA_KEY` | Jira key doesn't match pattern | Use format `CRMCN-1234` |
+| `INVALID_JIRA_KEY` | Jira key doesn't match `jira.allowedPrefixes` | Use `<PREFIX>-<NUMBER>` from config, or add the prefix there |
+| `TARGET_NOT_CONFIRMED` | Migration issue started without confirming the write repo | Re-run `vibe start <KEY> --confirm-target` and pass `--source` for the legacy repo |
 | `GIT_DIRTY_WORKTREE` | Uncommitted changes exist | Commit or stash changes first |
 | `BRANCH_ALREADY_EXISTS` | Feature branch already exists | Use `vibe resume` or delete the branch |
 | `PLAN_NOT_FOUND` | No plan exists for the task | Run `vibe plan` first |
@@ -533,6 +564,8 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 ---
 
 ## Best Practices for Agents
+
+Run `vibe skill` before anything else. The printed guide is the prerequisite for the rules below.
 
 1. **Never skip the plan → review loop** — run `vibe review` after `vibe plan`, and keep looping (plan → review → plan) until it reports `approved: true`. Execution is blocked before approval.
 2. **Ask the user on divergence/uncertainty** — when review surfaces open questions (or you hit any ambiguous/divergent decision), pause and ask the user; fold answers into the next `vibe plan`. Don't guess on decisions that change the plan.
@@ -554,6 +587,9 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 ## Example: Complete Task Flow
 
 ```bash
+# 0. Prerequisite
+vibe skill
+
 # 1. Start task
 vibe start CRMCN-11400
 
