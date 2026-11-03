@@ -28,10 +28,7 @@ Jira-driven, step-based vibe coding workflow CLI.
 ```json
 {
   "github": {
-    "repository": "lifebyte-systems/CRM-Sales-Frontend",
-    "reviewerPresets": {
-      "lifebyte-systems/CRM-Sales-Frontend": ["jynxioxiao-lb", "colinchen-lb"]
-    }
+    "repository": "example-org/example-repo"
   },
   "pr": {
     "aiDisclosure": "> This PR draft was generated with vibe-cli AI assistance. Please review all changes carefully before merging."

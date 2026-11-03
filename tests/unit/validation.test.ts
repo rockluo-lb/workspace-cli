@@ -48,7 +48,15 @@ describe('validation rules', () => {
 		expect(() => assertValidJiraKey('PJ-914', prefixes)).not.toThrow();
 		expect(() => assertValidBranch('feat/PJ-914', 'feat/{jiraKey}', prefixes)).not.toThrow();
 		expect(() => assertValidCommitMessage('refactor(PJ-914): align dashboard', prefixes)).not.toThrow();
-		expect(() => assertValidJiraKey('PJ-914')).toThrow(/Allowed prefixes: CRMCN/);
+		expect(() => assertValidJiraKey('PJ-914', ['CRMCN'])).toThrow(/Allowed prefixes: CRMCN/);
+	});
+
+	it('accepts any project key when no prefixes are configured', () => {
+		expect(() => assertValidJiraKey('PROJ-123')).not.toThrow();
+		expect(() => assertValidJiraKey('PJ-914')).not.toThrow();
+		expect(() => assertValidJiraKey('proj-123')).toThrow(/Expected <PROJECT>-<NUMBER>/);
+		expect(() => assertValidJiraKey('PROJ')).toThrow();
+		expect(COMMIT_PATTERN.test('fix(PROJ-123): handle empty list')).toBe(true);
 	});
 
 	it('strips html and blob urls from issue descriptions', () => {

@@ -1,6 +1,5 @@
 import fs from 'fs-extra';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
 import { z } from 'zod';
 import { resolveWorkspaceStateDir } from './state-paths.js';
 import type { VibeConfig } from './types.js';
@@ -8,7 +7,6 @@ import type { VibeConfig } from './types.js';
 const VERIFY_SCRIPT_PRIORITY = ['lint:ts', 'lint:js:check', 'lint:css:check', 'typecheck', 'specs:check', 'build'];
 
 export async function inferProjectDefaults(rootDir: string): Promise<{
-	baseBranch?: string;
 	verify?: VibeConfig['verify'];
 }> {
 	const packageJsonPath = path.join(rootDir, 'package.json');
@@ -33,31 +31,7 @@ export async function inferProjectDefaults(rootDir: string): Promise<{
 		}
 	}
 
-	let baseBranch: string | undefined;
-	if (await fs.pathExists(path.join(rootDir, '.git'))) {
-		const branches = await simpleGit(rootDir).branchLocal();
-		if (branches.all.includes('latest')) {
-			baseBranch = 'latest';
-		}
-	}
-
-	return { baseBranch, verify };
-}
-
-function resolveRepositoryReviewers(
-	repository?: string,
-	reviewers?: string[],
-	reviewerPresets?: Record<string, string[]>
-): string[] | undefined {
-	if (reviewers !== undefined) {
-		return reviewers;
-	}
-
-	if (!repository) {
-		return undefined;
-	}
-
-	return reviewerPresets?.[repository];
+	return { verify };
 }
 
 const configSchema = z.object({
@@ -67,7 +41,7 @@ const configSchema = z.object({
 	jira: z.object({
 		provider: z.enum(['auto', 'atlassian-mcp', 'atlassian-plugin']).default('auto'),
 		fallbackProvider: z.enum(['atlassian-mcp', 'atlassian-plugin']).optional(),
-		allowedPrefixes: z.array(z.string()).default(['CRMCN']),
+		allowedPrefixes: z.array(z.string()).default([]),
 	}),
 	figma: z.object({
 		provider: z.enum(['figma-mcp', 'figma-plugin']).default('figma-mcp'),
@@ -77,8 +51,6 @@ const configSchema = z.object({
 		provider: z.enum(['github-mcp', 'github-plugin']).default('github-mcp'),
 		fallbackProvider: z.enum(['github-mcp', 'github-plugin']).optional(),
 		repository: z.string().optional(),
-		reviewers: z.array(z.string()).optional(),
-		reviewerPresets: z.record(z.string(), z.array(z.string())).optional(),
 	}),
 	pr: z.object({
 		aiDisclosure: z
@@ -111,11 +83,7 @@ const configSchema = z.object({
 export const defaultConfig: VibeConfig = configSchema.parse({
 	jira: { fallbackProvider: 'atlassian-plugin' },
 	figma: {},
-	github: {
-		reviewerPresets: {
-			'lifebyte-systems/CRM-Sales-Frontend': ['jynxioxiao-lb', 'colinchen-lb'],
-		},
-	},
+	github: {},
 	pr: {},
 	planning: {},
 	verify: {},
@@ -135,7 +103,6 @@ export async function loadOrCreateConfig(rootDir: string, stateRoot = resolveWor
 		const inferred = await inferProjectDefaults(rootDir);
 		const created = configSchema.parse({
 			...defaultConfig,
-			baseBranch: inferred.baseBranch ?? defaultConfig.baseBranch,
 			verify: inferred.verify ?? defaultConfig.verify,
 		});
 		await fs.writeJson(configPath, created, { spaces: 2 });
@@ -148,14 +115,7 @@ export async function loadOrCreateConfig(rootDir: string, stateRoot = resolveWor
 		...raw,
 		jira: { ...defaultConfig.jira, ...raw.jira },
 		figma: { ...defaultConfig.figma, ...raw.figma },
-		github: {
-			...defaultConfig.github,
-			...raw.github,
-			reviewerPresets: {
-				...(defaultConfig.github.reviewerPresets ?? {}),
-				...(raw.github?.reviewerPresets ?? {}),
-			},
-		},
+		github: { ...defaultConfig.github, ...raw.github },
 		pr: { ...defaultConfig.pr, ...raw.pr },
 		planning: { ...defaultConfig.planning, ...raw.planning },
 		verify: { ...defaultConfig.verify, ...raw.verify },
@@ -163,18 +123,6 @@ export async function loadOrCreateConfig(rootDir: string, stateRoot = resolveWor
 		codeReview: { ...defaultConfig.codeReview, ...raw.codeReview },
 	});
 
-	const normalized = configSchema.parse({
-		...merged,
-		github: {
-			...merged.github,
-			reviewers: resolveRepositoryReviewers(
-				merged.github.repository,
-				merged.github.reviewers,
-				merged.github.reviewerPresets
-			),
-		},
-	});
-
-	await fs.writeJson(configPath, normalized, { spaces: 2 });
-	return normalized;
+	await fs.writeJson(configPath, merged, { spaces: 2 });
+	return merged;
 }

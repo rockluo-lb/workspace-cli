@@ -264,8 +264,6 @@ export interface VibeConfig {
 		provider: GitHubProviderMode;
 		fallbackProvider?: GitHubProviderMode;
 		repository?: string;
-		reviewers?: string[];
-		reviewerPresets?: Record<string, string[]>;
 	};
 	pr: {
 		aiDisclosure: string;
@@ -447,7 +445,6 @@ export interface PRBuildInput {
 	plan: ExecutionPlan;
 	progress: ProgressState;
 	aiDisclosure: string;
-	reviewers: string[];
 	verifyResults?: CommandResult[];
 	prContext?: PRContext;
 }

@@ -60,8 +60,8 @@ Dispatch one sub-agent at a time. Sub-agents share one worktree and one task sta
 
 The lead may run `vibe context`, `vibe plan`, and `vibe review` itself, or dispatch a sub-agent for any of them. Dispatch a sub-agent when the work is large enough to crowd the lead's context, for example:
 
-- many Figma frames, Confluence pages, or a legacy source repo to read for `vibe context`
-- a plan spanning several modules or portals
+- many Figma frames, Confluence pages, or a reference repository to read for `vibe context`
+- a plan spanning several modules or apps
 - a review with many open questions that need code research before they reach the user
 
 A preparation sub-agent returns a short summary, the report path, and any open questions. The plan → review → plan loop and its user questions still go through the lead.
@@ -99,9 +99,9 @@ The lead picks a model and a reasoning effort for every sub-agent based on how c
 
 | Complexity | Typical tasks | Model | Reasoning effort |
 |------------|---------------|-------|------------------|
-| Low | `vibe verify`; a step that touches 1–2 files with no new logic (copy, i18n keys, styles, types); `vibe context` with few links | Fast, low-cost model | Low |
-| Medium | a normal feature step within one module; code review of a small diff; `vibe plan` for a single page | Default model | Medium |
-| High | cross-module or cross-portal plans; migrations from a legacy repo; plan review with many open questions; steps with state, permissions, data flow, or concurrency; code review of a large diff | Strongest reasoning model | High |
+| Low | `vibe verify`; a step that touches 1–2 files with no new logic (copy, config, styles, types); `vibe context` with few links | Fast, low-cost model | Low |
+| Medium | a normal feature step within one module; code review of a small diff; `vibe plan` for a single module | Default model | Medium |
+| High | cross-module or cross-app plans; work that ports code from a reference repository; plan review with many open questions; steps with state, permissions, data flow, or concurrency; code review of a large diff | Strongest reasoning model | High |
 
 Rules:
 
@@ -143,7 +143,7 @@ This workflow enforces a deliberate loop to drive down uncertainty before any co
 
 ### Handling divergence & uncertainty — ask the user
 
-Whenever the review surfaces open questions, or you otherwise encounter divergence (e.g. multi-portal differences, ambiguous acceptance criteria, missing Figma context, unclear file scope), you MUST pause and ask the user to clarify before continuing the loop. Do not guess or silently pick a direction on decisions that materially change the plan. Fold the user's answers back into the next `vibe plan` iteration.
+Whenever the review surfaces open questions, or you otherwise encounter divergence (e.g. differences between target apps or environments, ambiguous acceptance criteria, missing Figma context, unclear file scope), you MUST pause and ask the user to clarify before continuing the loop. Do not guess or silently pick a direction on decisions that materially change the plan. Fold the user's answers back into the next `vibe plan` iteration.
 
 ---
 
@@ -204,22 +204,22 @@ vibe skill
 **Purpose:** Initialize a new task from a Jira issue.
 
 **What it does:**
-1. Validates the Jira key against `jira.allowedPrefixes` in the workspace config (default prefix: `CRMCN`)
+1. Validates the Jira key against `jira.allowedPrefixes` in the workspace config (empty by default, which accepts any `<PREFIX>-<NUMBER>` key)
 2. Ensures git worktree is clean
 3. Fetches the Jira issue, its links (Figma, Confluence), and comments
-4. For a cross-repo migration, stops until `--confirm-target` is passed. Optional `--source <path>` records the read-only legacy repo
+4. When the issue reads like a cross-repo port, stops until `--confirm-target` is passed. Optional `--source <path>` records a read-only reference repository
 5. Creates a feature branch from `branchPattern` (default: `feat/<JIRA_KEY>`)
 6. Prints the write target, base branch, and feature branch, then saves issue data and links
 
 **Usage:**
 ```bash
-vibe start CRMCN-11400
+vibe start PROJ-123
 ```
 
 **Prerequisites:**
 - Git worktree must be clean (no uncommitted changes)
-- Jira key must match `<PREFIX>-<NUMBER>` for a prefix in `jira.allowedPrefixes`
-- Migration issues require `vibe start <JIRA_KEY> --confirm-target`. Add `--source <legacy-repo>` when the old repo is only a reference
+- Jira key must match `<PREFIX>-<NUMBER>`, and the prefix must be in `jira.allowedPrefixes` when that list is set
+- Cross-repo issues require `vibe start <JIRA_KEY> --confirm-target`. Add `--source <path>` when another repository is only a reference
 
 **After this:** Run `vibe context <JIRA_KEY>`
 
@@ -238,7 +238,7 @@ vibe start CRMCN-11400
 
 **Usage:**
 ```bash
-vibe context CRMCN-11400
+vibe context PROJ-123
 ```
 
 **After this:** Run `vibe plan <JIRA_KEY>`
@@ -261,7 +261,7 @@ vibe context CRMCN-11400
 
 **Usage:**
 ```bash
-vibe plan CRMCN-11400
+vibe plan PROJ-123
 ```
 
 Fails with `STEP_ALREADY_COMMITTED` once any step is committed, because a new plan would reset those steps. Add later work with `vibe fix`.
@@ -285,7 +285,7 @@ Fails with `STEP_ALREADY_COMMITTED` once any step is committed, because a new pl
 
 **Usage:**
 ```bash
-vibe review CRMCN-11400
+vibe review PROJ-123
 ```
 
 **Agent behavior when not approved:**
@@ -303,7 +303,7 @@ vibe review CRMCN-11400
 
 **Usage:**
 ```bash
-vibe code CRMCN-11400 --step 1
+vibe code PROJ-123 --step 1
 ```
 
 **Key behaviors:**
@@ -329,7 +329,7 @@ vibe code CRMCN-11400 --step 1
 
 **Usage:**
 ```bash
-vibe code-review CRMCN-11400 --step 1
+vibe code-review PROJ-123 --step 1
 ```
 
 **Agent behavior when not passed:**
@@ -346,7 +346,7 @@ vibe code-review CRMCN-11400 --step 1
 
 **Usage:**
 ```bash
-vibe commit CRMCN-11400 --step 1
+vibe commit PROJ-123 --step 1
 ```
 
 **Key behaviors:**
@@ -373,10 +373,10 @@ vibe commit CRMCN-11400 --step 1
 **Usage:**
 ```bash
 # Execute, review, and commit step 1
-vibe done CRMCN-11400 --step 1
+vibe done PROJ-123 --step 1
 
 # Execute, review, and commit step 2
-vibe done CRMCN-11400 --step 2
+vibe done PROJ-123 --step 2
 ```
 
 **Options:**
@@ -403,7 +403,7 @@ vibe done CRMCN-11400 --step 2
 **Purpose:** Run task-level verification commands across all changes.
 
 **What it does:**
-1. Runs the configured verification commands (default: `pnpm lint`, `pnpm typecheck`, `pnpm test --changed`)
+1. Runs `verify.taskCommands` from the workspace config (when unset, they are inferred from the repo's package scripts)
 2. If any command fails with exit code 127 (command not found), provides a hint to update the vibe config
 3. If all pass, transitions task to `pr_ready` status
 
@@ -412,15 +412,15 @@ Fails with `STEPS_NOT_COMMITTED` while any plan step is uncommitted.
 
 **Usage:**
 ```bash
-vibe verify CRMCN-11400
+vibe verify PROJ-123
 ```
 
 **Note:** If verify commands don't match your project's actual scripts, update the vibe config file at `.vibe/config.json`:
 ```json
 {
   "verify": {
-    "taskCommands": ["pnpm lint:ts", "pnpm lint:js"],
-    "stepCommands": ["pnpm lint:ts"]
+    "taskCommands": ["<pm> lint", "<pm> typecheck", "<pm> test"],
+    "stepCommands": ["<pm> lint"]
   }
 }
 ```
@@ -436,12 +436,12 @@ vibe verify CRMCN-11400
 **What it does:**
 1. Gathers issue context, links, plan, and progress
 2. Fetches GitHub PR context (existing related PRs, compare URL)
-3. Generates a PR description with AI disclosure, reviewer assignments
+3. Generates a PR description with AI disclosure (reviewers are left to the repository's own rules, such as CODEOWNERS)
 4. Saves the draft as `pr.md` in the task's reports directory
 
 **Usage:**
 ```bash
-vibe pr CRMCN-11400
+vibe pr PROJ-123
 ```
 
 Fails with `STEPS_NOT_COMMITTED` while any step is uncommitted, and with `TASK_NOT_VERIFIED` unless the task is `pr_ready`.
@@ -456,7 +456,7 @@ Fails with `STEPS_NOT_COMMITTED` while any step is uncommitted, and with `TASK_N
 
 **Usage:**
 ```bash
-vibe show CRMCN-11400
+vibe show PROJ-123
 ```
 
 ---
@@ -467,7 +467,7 @@ vibe show CRMCN-11400
 
 **Usage:**
 ```bash
-vibe resume CRMCN-11400
+vibe resume PROJ-123
 ```
 
 ---
@@ -477,7 +477,7 @@ vibe resume CRMCN-11400
 **Purpose:** Add a relative path to a step's `expectedFiles` before commit. Use this when verification fixes land outside the original file list. Repeat `--file` for more than one path.
 
 ```bash
-vibe scope PJ-914 --step 5 --file src/router/routes.tsx --file src/view/export-dialog.tsx
+vibe scope PROJ-123 --step 5 --file src/routes.ts --file src/components/export-dialog.tsx
 ```
 
 ### `vibe fix <JIRA_KEY> --message <text> --file <path>`
@@ -485,7 +485,7 @@ vibe scope PJ-914 --step 5 --file src/router/routes.tsx --file src/view/export-d
 **Purpose:** Run by the lead to append a fix step after every plan step is committed, for example when `vibe verify` fails or the user asks for changes after review. Repeat `--file` for each file the fix may touch.
 
 ```bash
-vibe fix CRMCN-11400 --message "restore lint" --file src/view/list.tsx
+vibe fix PROJ-123 --message "restore lint" --file src/components/list.tsx
 ```
 
 **Key behaviors:**
@@ -505,7 +505,7 @@ vibe fix CRMCN-11400 --message "restore lint" --file src/view/list.tsx
 
 **Usage:**
 ```bash
-vibe abort CRMCN-11400
+vibe abort PROJ-123
 ```
 
 ---
@@ -637,15 +637,14 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
   "baseBranch": "main",
   "jira": {
     "provider": "auto",
-    "allowedPrefixes": ["CRMCN"]
+    "allowedPrefixes": ["PROJ"]
   },
   "figma": {
     "provider": "figma-mcp"
   },
   "github": {
     "provider": "github-mcp",
-    "repository": "owner/repo",
-    "reviewers": ["reviewer1", "reviewer2"]
+    "repository": "owner/repo"
   },
   "planning": {
     "minSteps": 3,
@@ -653,8 +652,8 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
     "maxFilesPerStep": 12
   },
   "verify": {
-    "stepCommands": ["pnpm lint"],
-    "taskCommands": ["pnpm lint", "pnpm typecheck", "pnpm test --changed"]
+    "stepCommands": ["<pm> lint"],
+    "taskCommands": ["<pm> lint", "<pm> typecheck", "<pm> test"]
   },
   "review": {
     "uncertaintyThreshold": 0.2,
@@ -686,7 +685,7 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 | Error Code | Meaning | Resolution |
 |------------|---------|------------|
 | `INVALID_JIRA_KEY` | Jira key doesn't match `jira.allowedPrefixes` | Use `<PREFIX>-<NUMBER>` from config, or add the prefix there |
-| `TARGET_NOT_CONFIRMED` | Migration issue started without confirming the write repo | Re-run `vibe start <KEY> --confirm-target` and pass `--source` for the legacy repo |
+| `TARGET_NOT_CONFIRMED` | Cross-repo issue started without confirming the write repo | Re-run `vibe start <KEY> --confirm-target` and pass `--source` for the reference repo |
 | `GIT_DIRTY_WORKTREE` | Uncommitted changes exist | Commit or stash changes first |
 | `BRANCH_ALREADY_EXISTS` | Feature branch already exists | Use `vibe resume` or delete the branch |
 | `PLAN_NOT_FOUND` | No plan exists for the task | Run `vibe plan` first |
@@ -731,42 +730,42 @@ Run `vibe skill` before anything else. The printed guide is the prerequisite for
 vibe skill
 
 # 1. Start task
-vibe start CRMCN-11400
+vibe start PROJ-123
 
 # 2. Build context
-vibe context CRMCN-11400
+vibe context PROJ-123
 
 # 3. Generate plan
-vibe plan CRMCN-11400
+vibe plan PROJ-123
 
 # 4. Review plan (plan → review → plan loop)
-vibe review CRMCN-11400
+vibe review PROJ-123
 #    If NOT approved: ask the user the open questions, then:
-#      vibe plan CRMCN-11400     # refine with the answers
-#      vibe review CRMCN-11400   # re-review; repeat until approved
+#      vibe plan PROJ-123     # refine with the answers
+#      vibe review PROJ-123   # re-review; repeat until approved
 
 # 5. Inspect the approved plan
-vibe show CRMCN-11400
+vibe show PROJ-123
 
-# 6. Step 1 (e.g., add API types and i18n keys)
+# 6. Step 1 (e.g., add API types)
 #    Coding sub-agent: [make code changes in the codebase]
-vibe code CRMCN-11400 --step 1
+vibe code PROJ-123 --step 1
 #    Review sub-agent (fresh agent, no file edits):
-vibe code-review CRMCN-11400 --step 1
+vibe code-review PROJ-123 --step 1
 #    If NOT passed: lead dispatches a new coding sub-agent with the findings,
 #    then a new review sub-agent; repeat until passed
 #    Lead:
-vibe commit CRMCN-11400 --step 1
+vibe commit PROJ-123 --step 1
 
 # 7. Steps 2..N repeat the same coding sub-agent → review sub-agent → lead commit cycle
 
 # 8. Verify sub-agent: verify all changes
-vibe verify CRMCN-11400
+vibe verify PROJ-123
 #    If it fails, lead appends a fix step and runs it through the coding phase:
-#      vibe fix CRMCN-11400 --message "restore lint" --file src/view/list.tsx
-#      coding sub-agent → review sub-agent → lead: vibe commit CRMCN-11400 --step 4
-#      new verify sub-agent: vibe verify CRMCN-11400
+#      vibe fix PROJ-123 --message "restore lint" --file src/components/list.tsx
+#      coding sub-agent → review sub-agent → lead: vibe commit PROJ-123 --step 4
+#      new verify sub-agent: vibe verify PROJ-123
 
 # 9. Lead: generate PR DRAFT only — then STOP and wait for user review.
 #     Do NOT push or open a PR automatically.
-vibe pr CRMCN-11400
+vibe pr PROJ-123

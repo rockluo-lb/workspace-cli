@@ -703,7 +703,6 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			plan,
 			progress,
 			aiDisclosure: this.deps.config.pr.aiDisclosure,
-			reviewers: this.deps.config.github.reviewers ?? [],
 			prContext,
 		});
 		const reportPath = await this.deps.taskStore.writeReport(jiraKey, 'pr.md', content);
@@ -895,8 +894,8 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			);
 		}
 		const pattern = commitPatternFor(prefixes);
-		const matched = (await this.deps.gitService.listCommitsSince(this.deps.config.baseBranch)).filter((commit) =>
-			pattern.test(commit.message)
+		const matched = (await this.deps.gitService.listCommitsSince(this.deps.config.baseBranch)).filter(
+			(commit) => pattern.test(commit.message) && commit.message.includes(`(${jiraKey}): `)
 		);
 		const taskCommits = matched.filter((commit) => commit.message.includes(`(${jiraKey})`));
 		if (taskCommits.length === 0) {

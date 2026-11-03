@@ -1,6 +1,7 @@
 import { AppError } from './errors.js';
 
-const DEFAULT_PREFIXES = ['CRMCN'];
+// No configured prefixes means any Jira-style project key is accepted.
+const DEFAULT_PREFIXES: string[] = [];
 const DEFAULT_BRANCH_PATTERN = 'feat/{jiraKey}';
 const COMMIT_TYPES = 'feat|refactor|fix|style';
 
@@ -8,20 +9,22 @@ export function escapeRegex(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function jiraKeySource(prefixes: string[]): string {
+	const project = prefixes.length > 0 ? prefixes.map(escapeRegex).join('|') : '[A-Z][A-Z0-9]+';
+	return `(?:${project})-\\d+`;
+}
+
 export function jiraKeyPatternFor(prefixes: string[]): RegExp {
-	const body = prefixes.map(escapeRegex).join('|');
-	return new RegExp(`^(?:${body})-\\d+$`);
+	return new RegExp(`^${jiraKeySource(prefixes)}$`);
 }
 
 export function branchPatternFor(pattern: string, prefixes: string[]): RegExp {
 	const [prefix = '', suffix = ''] = pattern.split('{jiraKey}');
-	const key = `(?:${prefixes.map(escapeRegex).join('|')})-\\d+`;
-	return new RegExp(`^${escapeRegex(prefix)}${key}${escapeRegex(suffix)}$`);
+	return new RegExp(`^${escapeRegex(prefix)}${jiraKeySource(prefixes)}${escapeRegex(suffix)}$`);
 }
 
 export function commitPatternFor(prefixes: string[]): RegExp {
-	const key = `(?:${prefixes.map(escapeRegex).join('|')})-\\d+`;
-	return new RegExp(`^(?:${COMMIT_TYPES})\\(${key}\\): .+$`);
+	return new RegExp(`^(?:${COMMIT_TYPES})\\(${jiraKeySource(prefixes)}\\): .+$`);
 }
 
 export const JIRA_KEY_PATTERN = jiraKeyPatternFor(DEFAULT_PREFIXES);
@@ -32,7 +35,9 @@ export function assertValidJiraKey(jiraKey: string, prefixes: string[] = DEFAULT
 	if (!jiraKeyPatternFor(prefixes).test(jiraKey)) {
 		throw new AppError(
 			'INVALID_JIRA_KEY',
-			`Invalid Jira key: ${jiraKey}. Allowed prefixes: ${prefixes.join(', ')}`
+			prefixes.length > 0
+				? `Invalid Jira key: ${jiraKey}. Allowed prefixes: ${prefixes.join(', ')}`
+				: `Invalid Jira key: ${jiraKey}. Expected <PROJECT>-<NUMBER>, for example PROJ-123.`
 		);
 	}
 }

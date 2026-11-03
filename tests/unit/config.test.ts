@@ -27,26 +27,7 @@ describe('config loading', () => {
 		).toBe(true);
 	});
 
-	it('applies repository reviewer presets when reviewers are not provided', async () => {
-		const rootDir = await createTempDir('vibe-config-reviewers-');
-		const stateBaseDir = await useTempStateRoot();
-		const stateRoot = resolveWorkspaceStateDir(rootDir, stateBaseDir);
-		await fs.ensureDir(stateRoot);
-		await fs.writeJson(
-			path.join(stateRoot, 'config.json'),
-			{
-				github: {
-					repository: 'lifebyte-systems/CRM-Sales-Frontend',
-				},
-			},
-			{ spaces: 2 }
-		);
-
-		const config = await loadOrCreateConfig(rootDir);
-		expect(config.github.reviewers).toEqual(['jynxioxiao-lb', 'colinchen-lb']);
-	});
-
-	it('allows overriding reviewer presets and pr disclosure from config', async () => {
+	it('allows overriding the pr disclosure from config', async () => {
 		const rootDir = await createTempDir('vibe-config-dynamic-');
 		const stateBaseDir = await useTempStateRoot();
 		const stateRoot = resolveWorkspaceStateDir(rootDir, stateBaseDir);
@@ -56,9 +37,6 @@ describe('config loading', () => {
 			{
 				github: {
 					repository: 'example/repo',
-					reviewerPresets: {
-						'example/repo': ['alice', 'bob'],
-					},
 				},
 				pr: {
 					aiDisclosure: 'Custom disclosure.',
@@ -68,11 +46,10 @@ describe('config loading', () => {
 		);
 
 		const config = await loadOrCreateConfig(rootDir);
-		expect(config.github.reviewers).toEqual(['alice', 'bob']);
 		expect(config.pr.aiDisclosure).toBe('Custom disclosure.');
 	});
 
-	it('infers verify scripts and the latest base branch for a new config', async () => {
+	it('infers verify scripts and keeps the configured base branch for a new config', async () => {
 		const rootDir = await createTempDir('vibe-config-infer-');
 		await useTempStateRoot();
 		await fs.writeJson(path.join(rootDir, 'package.json'), {
@@ -86,7 +63,8 @@ describe('config loading', () => {
 		run('git', ['checkout', '-b', 'latest'], rootDir);
 
 		const config = await loadOrCreateConfig(rootDir);
-		expect(config.baseBranch).toBe('latest');
+		expect(config.baseBranch).toBe('main');
+		expect(config.jira.allowedPrefixes).toEqual([]);
 		expect(config.verify.stepCommands).toEqual(['pnpm lint:ts']);
 		expect(config.verify.taskCommands).toEqual(['pnpm lint:ts', 'pnpm specs:check', 'pnpm build']);
 	});

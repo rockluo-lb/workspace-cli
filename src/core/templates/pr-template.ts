@@ -20,8 +20,6 @@ export function renderPrMarkdown(input: PRBuildInput): string {
 					)
 					.join('\n')
 			: '- Not run';
-	const reviewers =
-		input.reviewers.length > 0 ? input.reviewers.map((reviewer) => `- @${reviewer}`).join('\n') : '- None';
 
 	return `# ${input.issue.summary}
 
@@ -41,9 +39,6 @@ ${commits}
 
 ## Verification
 ${verify}
-
-## Reviewers
-${reviewers}
 
 ## PR Context
 - Repository: ${input.prContext?.repositoryFullName ?? 'unknown'}
