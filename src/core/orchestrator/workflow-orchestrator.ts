@@ -7,7 +7,9 @@ import type {
 	CommitStepResult,
 	ContextResult,
 	ExecuteStepResult,
+	ExecutionPlan,
 	ExternalLink,
+	FixStepResult,
 	JiraIssueContext,
 	PlanResult,
 	PlanStep,
@@ -28,6 +30,7 @@ import { slimIssue } from '../shared/issue-text.js';
 import {
 	assertValidCommitMessage,
 	assertValidJiraKey,
+	commitBody,
 	commitPatternFor,
 	renderBranchName,
 	renderCommitMessage,
@@ -81,6 +84,26 @@ function updateTaskStatus(progress: ProgressState, next: TaskStatus): ProgressSt
 		...progress,
 		status: next,
 	};
+}
+
+function normalizeScopeFiles(files: string[]): string[] {
+	return files.map((file) => {
+		const relative = file.replace(/\\/g, '/').replace(/^\.\//, '');
+		if (relative.startsWith('/') || relative.split('/').includes('..')) {
+			throw new AppError('DIFF_OUT_OF_SCOPE', `Scope file must stay inside the repository: ${file}`);
+		}
+		return relative;
+	});
+}
+
+function assertAllStepsCommitted(jiraKey: string, plan: ExecutionPlan): void {
+	const open = plan.steps.filter((step) => step.status !== 'committed').map((step) => step.id);
+	if (open.length > 0) {
+		throw new AppError(
+			'STEPS_NOT_COMMITTED',
+			`Steps ${open.join(', ')} of ${jiraKey} are not committed. Commit them with \`vibe commit ${jiraKey} --step <N>\` first.`
+		);
+	}
 }
 
 function commentBodyLinks(body: string): ExternalLink[] {
@@ -275,6 +298,15 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			'STATE_CORRUPTED',
 			`Progress not found for ${jiraKey}`
 		);
+		const committed = ((await this.deps.taskStore.loadPlan(jiraKey))?.steps ?? []).filter(
+			(step) => step.status === 'committed'
+		);
+		if (committed.length > 0) {
+			throw new AppError(
+				'STEP_ALREADY_COMMITTED',
+				`Steps ${committed.map((step) => step.id).join(', ')} of ${jiraKey} are already committed; regenerating the plan would reset them. Add more work with \`vibe fix ${jiraKey}\` instead.`
+			);
+		}
 
 		if (!repoContext) {
 			repoContext = (await this.buildContext(jiraKey)).repoContext;
@@ -349,9 +381,9 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		await this.deps.taskStore.saveProgress(jiraKey, reviewing);
 
 		const nextAction = review.forcedApproval
-			? `Plan review was force-approved with open questions. Confirm them with the user before \`vibe done ${jiraKey} --step ${plan.steps[0]?.id ?? 1}\`.`
+			? `Plan review was force-approved with open questions. Confirm them with the user before \`vibe code ${jiraKey} --step ${plan.steps[0]?.id ?? 1}\`.`
 			: review.approved
-				? `vibe done ${jiraKey} --step ${plan.steps[0]?.id ?? 1}`
+				? `vibe code ${jiraKey} --step ${plan.steps[0]?.id ?? 1}`
 				: `Ask the user the ${review.openQuestions.length} open question(s), then rerun \`vibe plan ${jiraKey}\` and \`vibe review ${jiraKey}\`.`;
 
 		if (review.approved) {
@@ -596,11 +628,17 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 	}
 
 	async verifyTask(jiraKey: string): Promise<VerifyResult> {
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
 		const progress = requireValue(
 			await this.deps.taskStore.loadProgress(jiraKey),
 			'STATE_CORRUPTED',
 			`Progress not found for ${jiraKey}`
 		);
+		assertAllStepsCommitted(jiraKey, plan);
 		const verifying = updateTaskStatus(
 			progress.status === 'plan_approved' ? { ...progress, status: 'coding' } : progress,
 			'verifying'
@@ -649,6 +687,13 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			'STATE_CORRUPTED',
 			`Progress not found for ${jiraKey}`
 		);
+		assertAllStepsCommitted(jiraKey, plan);
+		if (progress.status !== 'pr_ready') {
+			throw new AppError(
+				'TASK_NOT_VERIFIED',
+				`Task ${jiraKey} is ${progress.status}, not pr_ready. Run \`vibe verify ${jiraKey}\` until it passes.`
+			);
+		}
 		const prContext = this.deps.config.github.repository
 			? await this.deps.tools.github.preparePRContext(this.deps.config.github.repository, progress.branch)
 			: undefined;
@@ -690,7 +735,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 				case 'reviewing':
 					return `Resolve the open questions in review.md with the user, then rerun \`vibe plan ${jiraKey}\` and \`vibe review ${jiraKey}\`.`;
 				case 'plan_approved':
-					return `vibe done ${jiraKey} --step ${pendingSteps[0] ?? 1}`;
+					return `vibe code ${jiraKey} --step ${pendingSteps[0] ?? 1}`;
 				case 'coding':
 					if (progress.currentStep && currentStepStatus === 'reviewed') {
 						return `vibe commit ${jiraKey} --step ${progress.currentStep}`;
@@ -699,7 +744,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 						return `vibe code-review ${jiraKey} --step ${progress.currentStep}`;
 					}
 					return pendingSteps.length > 0
-						? `vibe done ${jiraKey} --step ${pendingSteps[0]}`
+						? `vibe code ${jiraKey} --step ${pendingSteps[0]}`
 						: `vibe verify ${jiraKey}`;
 				case 'code_review':
 					return `vibe code-review ${jiraKey} --step ${progress.currentStep ?? pendingSteps[0] ?? 1}`;
@@ -756,13 +801,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		if (step.status === 'committed') {
 			throw new AppError('STEP_ALREADY_COMMITTED', `Step ${stepId} is already committed.`);
 		}
-		const normalized = files.map((file) => {
-			const relative = file.replace(/\\/g, '/').replace(/^\.\//, '');
-			if (relative.startsWith('/') || relative.split('/').includes('..')) {
-				throw new AppError('DIFF_OUT_OF_SCOPE', `Scope file must stay inside the repository: ${file}`);
-			}
-			return relative;
-		});
+		const normalized = normalizeScopeFiles(files);
 		step.expectedFiles = [...new Set([...step.expectedFiles, ...normalized])].sort();
 		await this.deps.taskStore.savePlan(jiraKey, plan);
 		await this.deps.taskStore.appendLog(
@@ -774,6 +813,66 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			jiraKey,
 			stepId,
 			expectedFiles: step.expectedFiles,
+		};
+	}
+
+	async addFixStep(jiraKey: string, message: string, files: string[]): Promise<FixStepResult> {
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
+		const progress = requireValue(
+			await this.deps.taskStore.loadProgress(jiraKey),
+			'STATE_CORRUPTED',
+			`Progress not found for ${jiraKey}`
+		);
+		if (progress.status === 'aborted') {
+			throw new AppError('STATE_CORRUPTED', `Task ${jiraKey} is aborted.`);
+		}
+		const open = plan.steps.find((item) => item.status !== 'committed');
+		if (open) {
+			throw new AppError(
+				'STATE_CORRUPTED',
+				`Step ${open.id} is not committed yet. Fix it inside step ${open.id} instead of adding a fix step.`
+			);
+		}
+		const body = commitBody(message, '');
+		if (!body) {
+			throw new AppError('STATE_CORRUPTED', 'A fix step needs a non-empty message.');
+		}
+		const commitMessage = `fix(${jiraKey}): ${body}`;
+		assertValidCommitMessage(commitMessage, this.deps.config.jira.allowedPrefixes);
+		const stepId = Math.max(0, ...plan.steps.map((item) => item.id)) + 1;
+		const step: PlanStep = {
+			id: stepId,
+			title: `Fix: ${body}`,
+			description: progress.lastError ? `Fix after failure: ${progress.lastError}` : `Fix: ${body}`,
+			expectedFiles: [...new Set(normalizeScopeFiles(files))].sort(),
+			verifyCommands: this.deps.config.verify.stepCommands,
+			commitMessage,
+			status: 'pending',
+		};
+		plan.steps = [...plan.steps, step];
+		await this.deps.taskStore.savePlan(jiraKey, plan);
+		await this.deps.taskStore.writeTaskFile(jiraKey, 'plan.md', renderPlanMarkdown(plan));
+
+		const reopened = updateTaskStatus(progress, 'plan_approved');
+		reopened.currentStep = stepId;
+		reopened.codeReviewIteration = 0;
+		reopened.lastError = undefined;
+		await this.deps.taskStore.saveProgress(jiraKey, reopened);
+		await this.deps.taskStore.appendLog(
+			jiraKey,
+			`step-${stepId}.log`,
+			`Added fix step ${stepId}: ${commitMessage}; files=${step.expectedFiles.join(', ')}`
+		);
+		return {
+			jiraKey,
+			stepId,
+			commitMessage,
+			expectedFiles: step.expectedFiles,
+			nextAction: `vibe code ${jiraKey} --step ${stepId}`,
 		};
 	}
 

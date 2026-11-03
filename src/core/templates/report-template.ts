@@ -69,7 +69,7 @@ ${
 	review.forcedApproval
 		? '- 已达到审查轮次上限并强制放行。先和用户确认仍开放的问题，再执行。'
 		: review.approved
-			? '- 不确定因子已足够低，可进入执行阶段 (`vibe done <JIRA_KEY> --step 1`)。'
+			? '- 不确定因子已足够低，可进入执行阶段 (`vibe code <JIRA_KEY> --step 1`)。'
 			: '- 请携带上述未决问题询问用户，补充信息后重新运行 `vibe plan` 完善计划，再次 `vibe review`。'
 }
 `;

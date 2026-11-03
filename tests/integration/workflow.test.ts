@@ -44,6 +44,7 @@ describe('workflow integration', () => {
 
 		const code = await app.orchestrator.executeStep('CRMCN-1234', 1, { dryRun: true });
 		expect(code.summary).toContain('step 1');
+		await app.orchestrator.executeStep('CRMCN-1234', 1, { dryRun: true });
 		expect(run('git', ['status', '--short'], rootDir)).toBe('');
 
 		await fs.appendFile(path.join(rootDir, 'README.md'), 'Step 1 change\n', 'utf8');
@@ -60,14 +61,14 @@ describe('workflow integration', () => {
 		expect(commit.message).toMatch(/^feat\(CRMCN-1234\): /);
 		expect(run('git', ['log', '-1', '--pretty=%s'], rootDir)).toBe(commit.message);
 
-		const pr = await app.orchestrator.preparePR('CRMCN-1234');
-		expect(pr.content).toContain('CRMCN-1234');
-		expect(pr.content).toContain('This PR draft was generated with vibe-cli AI assistance.');
-		expect(await fs.pathExists(path.join(stateRoot, 'tasks/CRMCN-1234/reports/pr.md'))).toBe(true);
+		await expect(app.orchestrator.generatePlan('CRMCN-1234')).rejects.toThrow(/already committed/);
+		await expect(app.orchestrator.verifyTask('CRMCN-1234')).rejects.toThrow(/not committed/);
+		await expect(app.orchestrator.preparePR('CRMCN-1234')).rejects.toThrow(/not committed/);
+		expect(await fs.pathExists(path.join(stateRoot, 'tasks/CRMCN-1234/reports/pr.md'))).toBe(false);
 
 		const resume = await app.orchestrator.resumeTask('CRMCN-1234');
 		expect(resume.pendingSteps).toContain(2);
-		expect(resume.nextAction).toContain('vibe done CRMCN-1234 --step 2');
+		expect(resume.nextAction).toContain('vibe code CRMCN-1234 --step 2');
 	});
 
 	it('creates the task branch from the current branch by default', async () => {
@@ -160,6 +161,81 @@ describe('workflow integration', () => {
 		const progress = await app.taskStore.loadProgress('CRMCN-42');
 		expect(progress?.status).toBe('failed');
 		expect(run('git', ['log', '-1', '--pretty=%s'], rootDir)).toBe('chore: initial');
+	});
+
+	it('appends a fix step after task verification fails', async () => {
+		const rootDir = await createTempDir('vibe-workflow-fix-');
+		const stateBaseDir = await useTempStateRoot();
+		const stateRoot = resolveWorkspaceStateDir(rootDir, stateBaseDir);
+		await initGitRepo(rootDir);
+		await fs.ensureDir(stateRoot);
+		await fs.writeJson(path.join(stateRoot, 'config.json'), {
+			verify: { stepCommands: [], taskCommands: ['node -e "process.exit(1)"'] },
+		});
+		const app = await createApp(rootDir);
+		await app.orchestrator.startTask('CRMCN-88');
+		await app.orchestrator.generatePlan('CRMCN-88');
+
+		await expect(app.orchestrator.addFixStep('CRMCN-88', 'too early', ['README.md'])).rejects.toThrow(
+			/not committed yet/
+		);
+
+		const plan = await app.taskStore.loadPlan('CRMCN-88');
+		if (!plan) {
+			throw new Error('missing plan');
+		}
+		plan.steps = plan.steps.map((step) => ({ ...step, status: 'committed' as const }));
+		await app.taskStore.savePlan('CRMCN-88', plan);
+		const progress = await app.taskStore.loadProgress('CRMCN-88');
+		if (!progress) {
+			throw new Error('missing progress');
+		}
+		await app.taskStore.saveProgress('CRMCN-88', { ...progress, status: 'coding' });
+		await expect(app.orchestrator.verifyTask('CRMCN-88')).rejects.toThrow(/verification failed/);
+
+		const fix = await app.orchestrator.addFixStep('CRMCN-88', 'restore lint', ['README.md']);
+		expect(fix.stepId).toBe(plan.steps.length + 1);
+		expect(fix.commitMessage).toBe('fix(CRMCN-88): restore lint');
+		expect(fix.nextAction).toBe(`vibe code CRMCN-88 --step ${fix.stepId}`);
+		expect((await app.taskStore.loadProgress('CRMCN-88'))?.status).toBe('plan_approved');
+
+		await app.orchestrator.executeStep('CRMCN-88', fix.stepId);
+		await fs.appendFile(path.join(rootDir, 'README.md'), 'fix\n', 'utf8');
+		const review = await app.orchestrator.reviewCode('CRMCN-88', fix.stepId);
+		expect(review.review.passed).toBe(true);
+		await app.orchestrator.commitStep('CRMCN-88', fix.stepId);
+		expect(run('git', ['log', '-1', '--pretty=%s'], rootDir)).toBe('fix(CRMCN-88): restore lint');
+		await expect(app.orchestrator.preparePR('CRMCN-88')).rejects.toThrow(/not pr_ready/);
+	});
+
+	it('drafts a PR only after every step is committed and verified', async () => {
+		const rootDir = await createTempDir('vibe-workflow-pr-');
+		const stateBaseDir = await useTempStateRoot();
+		const stateRoot = resolveWorkspaceStateDir(rootDir, stateBaseDir);
+		await initGitRepo(rootDir);
+		await fs.ensureDir(stateRoot);
+		await fs.writeJson(path.join(stateRoot, 'config.json'), {
+			verify: { stepCommands: [], taskCommands: ['node -e "process.exit(0)"'] },
+		});
+		const app = await createApp(rootDir);
+		await app.orchestrator.startTask('CRMCN-99');
+		await app.orchestrator.generatePlan('CRMCN-99');
+
+		const plan = await app.taskStore.loadPlan('CRMCN-99');
+		const progress = await app.taskStore.loadProgress('CRMCN-99');
+		if (!plan || !progress) {
+			throw new Error('missing state');
+		}
+		plan.steps = plan.steps.map((step) => ({ ...step, status: 'committed' as const }));
+		await app.taskStore.savePlan('CRMCN-99', plan);
+		await app.taskStore.saveProgress('CRMCN-99', { ...progress, status: 'coding' });
+		await expect(app.orchestrator.preparePR('CRMCN-99')).rejects.toThrow(/not pr_ready/);
+
+		await app.orchestrator.verifyTask('CRMCN-99');
+		const pr = await app.orchestrator.preparePR('CRMCN-99');
+		expect(pr.content).toContain('CRMCN-99');
+		expect(pr.content).toContain('This PR draft was generated with vibe-cli AI assistance.');
+		expect(await fs.pathExists(path.join(stateRoot, 'tasks/CRMCN-99/reports/pr.md'))).toBe(true);
 	});
 
 	it('rebuilds task state from commits on the feature branch', async () => {

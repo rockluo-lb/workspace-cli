@@ -9,8 +9,8 @@ const taskTransitions: Record<TaskStatus, TaskStatus[]> = {
 	plan_approved: ['planned', 'coding', 'verifying', 'failed', 'aborted'],
 	coding: ['planned', 'plan_approved', 'code_review', 'verifying', 'failed', 'aborted'],
 	code_review: ['coding', 'verifying', 'failed', 'aborted'],
-	verifying: ['pr_ready', 'failed', 'aborted'],
-	pr_ready: ['failed', 'aborted'],
+	verifying: ['pr_ready', 'plan_approved', 'failed', 'aborted'],
+	pr_ready: ['plan_approved', 'failed', 'aborted'],
 	aborted: [],
 	failed: [
 		'initialized',
@@ -39,6 +39,10 @@ export function canTransitionTaskStatus(from: TaskStatus, to: TaskStatus): boole
 }
 
 export function canTransitionStepStatus(from: PlanStepStatus, to: PlanStepStatus): boolean {
+	// Rerunning `vibe code` or `vibe code-review` on the same step keeps its status.
+	if (from === to && from !== 'committed') {
+		return true;
+	}
 	return stepTransitions[from].includes(to);
 }
 

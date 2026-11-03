@@ -15,6 +15,8 @@ const EXIT_CODES: Record<AppErrorCode, number> = {
 	CODE_REVIEW_NOT_PASSED: 5,
 	CAPABILITY_UNAVAILABLE: 3,
 	TARGET_NOT_CONFIRMED: 4,
+	STEPS_NOT_COMMITTED: 4,
+	TASK_NOT_VERIFIED: 4,
 };
 
 export class AppError extends Error {

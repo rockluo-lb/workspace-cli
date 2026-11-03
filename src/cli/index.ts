@@ -9,6 +9,7 @@ import { registerCodeReviewCommand } from './commands/code-review.js';
 import { registerCodeCommand } from './commands/code.js';
 import { registerCommitCommand } from './commands/commit.js';
 import { registerDoneCommand } from './commands/done.js';
+import { registerFixCommand } from './commands/fix.js';
 import { registerContextCommand } from './commands/context.js';
 import { registerPlanCommand } from './commands/plan.js';
 import { registerPrCommand } from './commands/pr.js';
@@ -41,6 +42,7 @@ async function main(): Promise<void> {
 	registerCommitCommand(program, getApp);
 	registerDoneCommand(program, getApp);
 	registerVerifyCommand(program, getApp);
+	registerFixCommand(program, getApp);
 	registerPrCommand(program, getApp);
 	registerResumeCommand(program, getApp);
 	registerAbortCommand(program, getApp);

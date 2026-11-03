@@ -41,6 +41,13 @@ describe('state machine', () => {
 		expect(() => assertStepTransition('failed', 'committed')).not.toThrow();
 	});
 
+	it('keeps the same status when a step command is rerun', () => {
+		expect(canTransitionStepStatus('verified', 'verified')).toBe(true);
+		expect(canTransitionStepStatus('coded', 'coded')).toBe(true);
+		expect(canTransitionStepStatus('reviewed', 'reviewed')).toBe(true);
+		expect(() => assertStepTransition('committed', 'committed')).toThrow();
+	});
+
 	it('blocks invalid transitions', () => {
 		expect(canTransitionTaskStatus('initialized', 'pr_ready')).toBe(false);
 		expect(() => assertStepTransition('committed', 'coded')).toThrow();

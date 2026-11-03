@@ -33,7 +33,9 @@ export type AppErrorCode =
 	| 'PLAN_NOT_APPROVED'
 	| 'CODE_REVIEW_NOT_PASSED'
 	| 'CAPABILITY_UNAVAILABLE'
-	| 'TARGET_NOT_CONFIRMED';
+	| 'TARGET_NOT_CONFIRMED'
+	| 'STEPS_NOT_COMMITTED'
+	| 'TASK_NOT_VERIFIED';
 
 export interface ExternalLink {
 	type: LinkType;
@@ -320,6 +322,14 @@ export interface ScopeStepResult {
 	expectedFiles: string[];
 }
 
+export interface FixStepResult {
+	jiraKey: string;
+	stepId: number;
+	commitMessage: string;
+	expectedFiles: string[];
+	nextAction: string;
+}
+
 export interface AdoptTaskResult {
 	jiraKey: string;
 	branch: string;
@@ -585,6 +595,7 @@ export interface WorkflowOrchestrator {
 	resumeTask(jiraKey: string): Promise<ResumeResult>;
 	abortTask(jiraKey: string): Promise<AbortTaskResult>;
 	addStepScope(jiraKey: string, stepId: number, files: string[]): Promise<ScopeStepResult>;
+	addFixStep(jiraKey: string, message: string, files: string[]): Promise<FixStepResult>;
 	adoptTask(jiraKey: string): Promise<AdoptTaskResult>;
 }
 
