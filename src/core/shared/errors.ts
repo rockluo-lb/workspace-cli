@@ -17,6 +17,7 @@ const EXIT_CODES: Record<AppErrorCode, number> = {
 	TARGET_NOT_CONFIRMED: 4,
 	STEPS_NOT_COMMITTED: 4,
 	TASK_NOT_VERIFIED: 4,
+	PLAN_INVALID: 2,
 };
 
 export class AppError extends Error {

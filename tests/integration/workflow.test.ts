@@ -129,6 +129,29 @@ describe('workflow integration', () => {
 		expect(start.confirmation).toContain('/tmp/staff');
 	});
 
+	it('imports a plan file and keeps its decisions when the plan is regenerated', async () => {
+		const rootDir = await createTempDir('vibe-workflow-import-');
+		await useTempStateRoot();
+		await initGitRepo(rootDir);
+		const app = await createApp(rootDir);
+		await app.orchestrator.startTask('CRMCN-77');
+
+		const decisions = [{ question: 'Keep the old route?', answer: 'Yes' }];
+		const imported = await app.orchestrator.generatePlan('CRMCN-77', {
+			draft: {
+				summary: 'Imported',
+				decisions,
+				steps: [{ title: 'Update readme', expectedFiles: ['README.md'] }],
+			},
+		});
+		expect(imported.plan.steps).toHaveLength(1);
+		expect(imported.plan.decisions).toEqual(decisions);
+		expect(await fs.readFile(imported.reportPath, 'utf8')).toContain('Keep the old route?');
+
+		const regenerated = await app.orchestrator.generatePlan('CRMCN-77');
+		expect(regenerated.plan.decisions).toEqual(decisions);
+	});
+
 	it('stops a step when verification fails and can extend scope before commit', async () => {
 		const rootDir = await createTempDir('vibe-workflow-verify-');
 		await useTempStateRoot();

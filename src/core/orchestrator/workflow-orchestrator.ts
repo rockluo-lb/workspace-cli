@@ -8,6 +8,7 @@ import type {
 	ContextResult,
 	ExecuteStepResult,
 	ExecutionPlan,
+	ExecutionPlanDraft,
 	ExternalLink,
 	FixStepResult,
 	JiraIssueContext,
@@ -285,7 +286,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		};
 	}
 
-	async generatePlan(jiraKey: string): Promise<PlanResult> {
+	async generatePlan(jiraKey: string, options?: { draft?: ExecutionPlanDraft }): Promise<PlanResult> {
 		const issue = requireValue(
 			await this.deps.taskStore.loadIssue(jiraKey),
 			'JIRA_FETCH_FAILED',
@@ -298,9 +299,8 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			'STATE_CORRUPTED',
 			`Progress not found for ${jiraKey}`
 		);
-		const committed = ((await this.deps.taskStore.loadPlan(jiraKey))?.steps ?? []).filter(
-			(step) => step.status === 'committed'
-		);
+		const previousPlan = await this.deps.taskStore.loadPlan(jiraKey);
+		const committed = (previousPlan?.steps ?? []).filter((step) => step.status === 'committed');
 		if (committed.length > 0) {
 			throw new AppError(
 				'STEP_ALREADY_COMMITTED',
@@ -312,13 +312,18 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			repoContext = (await this.buildContext(jiraKey)).repoContext;
 		}
 
-		const plan = await this.deps.planner.generate({
-			jiraKey,
-			issue,
-			links,
-			repoContext,
-			config: this.deps.config,
-		});
+		const plan = options?.draft
+			? this.deps.planner.fromDraft(jiraKey, issue.summary, options.draft)
+			: await this.deps.planner.generate({
+					jiraKey,
+					issue,
+					links,
+					repoContext,
+					config: this.deps.config,
+				});
+		if (!plan.decisions?.length && previousPlan?.decisions?.length) {
+			plan.decisions = previousPlan.decisions;
+		}
 
 		await this.deps.taskStore.savePlan(jiraKey, plan);
 		const reportPath = await this.deps.taskStore.writeTaskFile(jiraKey, 'plan.md', renderPlanMarkdown(plan));

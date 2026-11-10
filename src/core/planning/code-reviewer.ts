@@ -9,6 +9,7 @@ import type {
 const ABSTRACTION_SMELL_PATTERN =
 	/(abstract|factory|manager|wrapper|provider-base|base-[a-z]+|strategy|adapter|helper|utils?)\.(ts|tsx|js|jsx)$/i;
 const TEST_FILE_PATTERN = /(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|\/)(tests?|__tests__)\/)/i;
+const DOC_FILE_PATTERN = /(\.(md|mdx|mdc)$|(^|\/)(docs?|specs?)\/)/i;
 const SOURCE_FILE_PATTERN = /\.(ts|tsx|js|jsx)$/i;
 const DEPENDENCY_MANIFEST_PATTERN = /(^|\/)package\.json$/i;
 const MISSING_TEST_INSERTION_FLOOR = 80;
@@ -25,6 +26,11 @@ function isPureAddition(stat: DiffStat): boolean {
 	return stat.insertions > 0 && stat.deletions === 0;
 }
 
+function countsTowardSize(stat: DiffStat): boolean {
+	const file = normalize(stat.file);
+	return !TEST_FILE_PATTERN.test(file) && !DOC_FILE_PATTERN.test(file);
+}
+
 export class HeuristicCodeReviewer implements CodeReviewer {
 	review(input: CodeReviewInput): CodeReview {
 		const { step, changedFiles, diffStats, repoContext, scopeResult, config, iteration } = input;
@@ -38,8 +44,9 @@ export class HeuristicCodeReviewer implements CodeReviewer {
 		};
 
 		const files = changedFiles.map(normalize);
-		const insertions = totalInsertions(diffStats);
-		const pureAdditions = diffStats.filter(isPureAddition);
+		const sizedStats = diffStats.filter(countsTowardSize);
+		const insertions = totalInsertions(sizedStats);
+		const pureAdditions = sizedStats.filter(isPureAddition);
 
 		for (const error of scopeResult.errors) {
 			addFinding({
@@ -56,14 +63,6 @@ export class HeuristicCodeReviewer implements CodeReviewer {
 			});
 		}
 
-		if (pureAdditions.length > config.codeReview.maxNewFiles) {
-			addFinding({
-				category: 'over-engineering',
-				message: `本步骤纯新增 ${pureAdditions.length} 个文件（阈值 ${config.codeReview.maxNewFiles}）。请确认是否存在不必要的分层或提前抽象，能否合并到现有文件。`,
-				weight: 0.2,
-			});
-		}
-
 		if (insertions > config.codeReview.maxInsertions) {
 			addFinding({
 				category: 'complexity',
@@ -72,16 +71,21 @@ export class HeuristicCodeReviewer implements CodeReviewer {
 			});
 		}
 
-		const largeFileFloor = Math.ceil(config.codeReview.maxInsertions / 2);
-		for (const stat of diffStats) {
-			if (stat.insertions > largeFileFloor) {
-				addFinding({
-					category: 'complexity',
-					message: `单文件新增 ${stat.insertions} 行，超过单文件建议上限 ${largeFileFloor}，请检查是否职责过多。`,
-					file: normalize(stat.file),
-					weight: 0.15,
-				});
+		const maxFileLines = config.codeReview.maxFileLines;
+		for (const stat of sizedStats) {
+			if (stat.lines === undefined || stat.lines <= maxFileLines) {
+				continue;
 			}
+			const linesBefore = stat.lines - stat.insertions + stat.deletions;
+			if (linesBefore > maxFileLines) {
+				continue;
+			}
+			addFinding({
+				category: 'complexity',
+				message: `单文件 ${stat.lines} 行，超过 ${maxFileLines} 行。如果存在明确的拆分边界（独立的子组件、hook、工具函数、类型或常量），必须拆分；没有明确边界时保留并说明原因。`,
+				file: normalize(stat.file),
+				weight: 0.1,
+			});
 		}
 
 		for (const file of files) {
@@ -156,7 +160,7 @@ export class HeuristicCodeReviewer implements CodeReviewer {
 		}
 
 		signals.push(
-			`score=${riskScore} threshold=${threshold} findings=${findings.length} files=${files.length} insertions=${insertions}`
+			`score=${riskScore} threshold=${threshold} findings=${findings.length} files=${files.length} sizedFiles=${sizedStats.length} insertions=${insertions}`
 		);
 
 		return {

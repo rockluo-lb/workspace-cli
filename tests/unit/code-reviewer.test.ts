@@ -131,6 +131,40 @@ describe('HeuristicCodeReviewer', () => {
 		expect(review.findings.some((finding) => finding.message.includes('未改动任何测试'))).toBe(true);
 	});
 
+	it('asks to split files that grow past the line limit in this step', () => {
+		const limit = defaultConfig.codeReview.maxFileLines;
+		const diffStats: DiffStat[] = [
+			{ file: 'src/api/reporting.ts', insertions: limit + 20, deletions: 0, lines: limit + 20 },
+			{ file: 'src/api/legacy.ts', insertions: 5, deletions: 1, lines: limit + 200 },
+			{ file: 'src/api/small.ts', insertions: 10, deletions: 0, lines: 120 },
+		];
+		const review = reviewer.review(
+			makeInput({ changedFiles: diffStats.map((stat) => stat.file), diffStats })
+		);
+
+		const splitFindings = review.findings.filter((finding) => finding.message.includes('拆分边界'));
+		expect(splitFindings.map((finding) => finding.file)).toEqual(['src/api/reporting.ts']);
+	});
+
+	it('leaves docs, specs, and tests out of file and line counts', () => {
+		const largeDoc = defaultConfig.codeReview.maxInsertions + 100;
+		const diffStats: DiffStat[] = [
+			{ file: 'src/api/reporting.ts', insertions: 20, deletions: 4 },
+			{ file: 'docs/reporting.md', insertions: largeDoc, deletions: 0 },
+			{ file: 'specs/reporting/spec.md', insertions: 120, deletions: 0 },
+			{ file: '.cursor/rules/reporting.mdc', insertions: 30, deletions: 0 },
+			{ file: 'src/api/reporting.test.ts', insertions: 150, deletions: 0 },
+			{ file: 'tests/reporting.spec.ts', insertions: 150, deletions: 0 },
+		];
+		const review = reviewer.review(
+			makeInput({ changedFiles: diffStats.map((stat) => stat.file), diffStats })
+		);
+
+		expect(review.findings).toHaveLength(0);
+		expect(review.passed).toBe(true);
+		expect(review.signals.some((signal) => signal.includes('sizedFiles=1 insertions=20'))).toBe(true);
+	});
+
 	it('force-passes when max iterations are reached', () => {
 		const review = reviewer.review(
 			makeInput({

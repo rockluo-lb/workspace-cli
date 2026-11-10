@@ -6,7 +6,14 @@ import type { DiffStat, LocalGitService } from '../shared/types.js';
 
 function isOperationalFile(file: string): boolean {
 	const normalized = file.replace(/\\/g, '/');
-	return normalized.startsWith('.vibe/') || normalized.startsWith('.cursor/');
+	return normalized.startsWith('.vibe/');
+}
+
+function countLines(content: string): number {
+	if (content.length === 0) {
+		return 0;
+	}
+	return content.split('\n').length - (content.endsWith('\n') ? 1 : 0);
 }
 
 function parseNumstat(output: string): DiffStat[] {
@@ -144,12 +151,19 @@ export class SimpleGitService implements LocalGitService {
 			const content = await fs.readFile(absolutePath, 'utf8');
 			untracked.push({
 				file: path.normalize(file),
-				insertions: content.length === 0 ? 0 : content.split('\n').length,
+				insertions: countLines(content),
 				deletions: 0,
 			});
 		}
 
-		return mergeDiffStats([unstaged, staged, untracked]);
+		const merged = mergeDiffStats([unstaged, staged, untracked]);
+		for (const stat of merged) {
+			const absolutePath = path.join(this.rootDir, stat.file);
+			if ((await fs.pathExists(absolutePath)) && (await fs.stat(absolutePath)).isFile()) {
+				stat.lines = countLines(await fs.readFile(absolutePath, 'utf8'));
+			}
+		}
+		return merged;
 	}
 
 	async addFiles(files: string[]): Promise<void> {

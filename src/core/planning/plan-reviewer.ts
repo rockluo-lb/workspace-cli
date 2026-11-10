@@ -35,27 +35,39 @@ export class HeuristicPlanReviewer implements PlanReviewer {
 		const openQuestions: OpenQuestion[] = [];
 		const signals: string[] = [];
 		let score = 0;
+		const decided = new Set((plan.decisions ?? []).map((decision) => decision.question.trim()));
+		let decidedCount = 0;
 
-		const addQuestion = (question: OpenQuestion): void => {
+		const addQuestion = (question: OpenQuestion, source?: string): void => {
+			if (decided.has(question.prompt) || (source !== undefined && decided.has(source.trim()))) {
+				decidedCount += 1;
+				return;
+			}
 			openQuestions.push(question);
 			score += question.weight;
 		};
 
 		for (const risk of plan.risks) {
-			addQuestion({
-				category: 'divergence',
-				prompt: `如何应对已识别的风险：「${risk}」？是否需要调整对应步骤或补充上下文？`,
-				weight: hasDivergenceWording(risk) ? 0.18 : 0.12,
-			});
+			addQuestion(
+				{
+					category: 'divergence',
+					prompt: `如何应对已识别的风险：「${risk}」？是否需要调整对应步骤或补充上下文？`,
+					weight: hasDivergenceWording(risk) ? 0.18 : 0.12,
+				},
+				risk
+			);
 		}
 
 		for (const assumption of plan.assumptions) {
 			const weight = hasUncertainWording(assumption) ? 0.15 : 0.08;
-			addQuestion({
-				category: 'design',
-				prompt: `请确认假设是否成立：「${assumption}」。若不成立，计划需要如何修改？`,
-				weight,
-			});
+			addQuestion(
+				{
+					category: 'design',
+					prompt: `请确认假设是否成立：「${assumption}」。若不成立，计划需要如何修改？`,
+					weight,
+				},
+				assumption
+			);
 		}
 
 		for (const step of plan.steps) {
@@ -154,7 +166,9 @@ export class HeuristicPlanReviewer implements PlanReviewer {
 			signals.push(`reached max review iterations (${config.review.maxIterations}); forcing approval`);
 		}
 
-		signals.push(`score=${uncertaintyScore} threshold=${threshold} questions=${openQuestions.length}`);
+		signals.push(
+			`score=${uncertaintyScore} threshold=${threshold} questions=${openQuestions.length} decided=${decidedCount}`
+		);
 
 		return {
 			jiraKey: input.jiraKey,

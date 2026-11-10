@@ -126,6 +126,27 @@ describe('HeuristicPlanReviewer', () => {
 		expect(review.openQuestions.some((question) => question.prompt.includes('逐项对照'))).toBe(true);
 	});
 
+	it('skips questions the plan already records as decided', () => {
+		const figmaPrompt = 'Figma 链接没有节点。请先定位到具体画板再实现；整文件上下文只够做目录，不够还原界面。';
+		const review = reviewer.review(
+			makeInput({
+				plan: {
+					risks: ['Tailwind tokens differ between portals'],
+					assumptions: ['Reuse the existing table component'],
+					decisions: [
+						{ question: 'Tailwind tokens differ between portals', answer: 'Map tokens per portal' },
+						{ question: 'Reuse the existing table component', answer: 'Confirmed by user' },
+						{ question: figmaPrompt, answer: 'Use node 12:34' },
+					],
+				},
+				links: [{ type: 'figma', url: 'https://www.figma.com/design/abc/File', source: 'description' }],
+			})
+		);
+		expect(review.openQuestions).toHaveLength(0);
+		expect(review.approved).toBe(true);
+		expect(review.signals.some((signal) => signal.includes('decided=3'))).toBe(true);
+	});
+
 	it('asks for a figma node when the link has no node id', () => {
 		const review = reviewer.review(
 			makeInput({

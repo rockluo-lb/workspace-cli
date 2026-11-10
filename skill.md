@@ -79,9 +79,13 @@ For every step N the lead MUST dispatch two separate sub-agents, in order. Never
 2. **Review sub-agent** (a fresh agent, never the coding sub-agent)
    - runs `vibe code-review <JIRA_KEY> --step N` and reads the actual diff against project conventions
    - does not edit files
-   - returns `passed`, `riskScore`, the findings, and the report path
+   - returns `passed`, `riskScore`, the CLI findings, its own must-fix items from reading the diff (empty list when there are none), and the report path
 
-If the review does not pass, the lead dispatches a new coding sub-agent with the findings, then a new review sub-agent. Repeat until it passes. Then the lead runs `vibe commit <JIRA_KEY> --step N` and moves to step N+1.
+The step is committable only when both gates pass: `vibe code-review` reports `passed: true` **and** the review sub-agent's must-fix list is empty. A passing vibe score does not override a must-fix item; send it back to a coding sub-agent like a failed review.
+
+If either gate fails, the lead dispatches a new coding sub-agent with the findings, then a new review sub-agent. Repeat until both pass. Then the lead runs `vibe commit <JIRA_KEY> --step N` and moves to step N+1.
+
+Exception for size-only findings: when a review sub-agent has already returned an empty must-fix list for the current diff, and the only remaining CLI finding is the step-size rule (`maxInsertions`), the lead may rerun `vibe code-review <JIRA_KEY> --step N` itself for the following rounds instead of dispatching a new sub-agent each time. If the diff changes in any way, dispatch a review sub-agent again.
 
 ### Verification phase: verify sub-agent, required
 
@@ -89,7 +93,10 @@ After all steps are committed, the lead MUST dispatch a verify sub-agent:
 
 - runs `vibe verify <JIRA_KEY>`
 - does not edit files
-- returns each command with its exit code, the failing output, and the path to `verify-report.md`
+- compares the commands that actually ran against the `scripts` in `package.json`. When the project has lint, typecheck, or test scripts that `verify.taskCommands` skipped, it lists them as missing, so the lead can add them to the config or run them separately
+- returns each command with its exit code, the failing output, the missing scripts, and the path to `verify-report.md`
+
+A verify run that skipped an existing `test` script does not count as a pass until the lead has run the tests.
 
 If verification fails, the lead runs `vibe fix <JIRA_KEY> --message <text> --file <path>` to append a fix step, then runs that step through the coding phase: coding sub-agent, review sub-agent, lead commit. Then it dispatches a new verify sub-agent. Only after a verify sub-agent reports a pass does the lead run `vibe pr`.
 
@@ -135,7 +142,7 @@ This workflow enforces a deliberate loop to drive down uncertainty before any co
 3. **Decision**:
    - If **not approved** (score above threshold), the task returns to `planned`. You MUST:
      - Take the `openQuestions` and **ask the user** to resolve divergence and uncertainty (see next section).
-     - Incorporate the answers, then rerun `vibe plan` to refine the plan.
+     - Incorporate the answers into the plan file: record each answer in `decisions` (with the question text copied verbatim from `review.md`), update the steps, then rerun `vibe plan <JIRA_KEY> --from <file>`.
      - Run `vibe review` again. Repeat until approved (or until `review.maxIterations` is reached).
    - If **approved** (uncertainty low enough), the task moves to `plan_approved` and the lead may dispatch the first coding sub-agent.
 
@@ -172,7 +179,16 @@ Apply YAGNI ruthlessly. Before accepting your own diff, check:
 - **No new dependency** unless nothing existing can do the job; justify it explicitly if the diff touches `package.json`.
 - **Scope discipline.** Only touch what the step's `expectedFiles` implies.
 
-The reviewer flags pure-addition file counts above `codeReview.maxNewFiles`, insertions above `codeReview.maxInsertions`, abstraction-smell filenames, dependency manifest changes, and missing test coverage. Treat those findings as real signals, not noise to bypass.
+The reviewer flags insertions above `codeReview.maxInsertions`, files grown past `codeReview.maxFileLines`, abstraction-smell filenames, dependency manifest changes, and missing test coverage. Treat those findings as real signals, not noise to bypass.
+
+**Single-file size rule.** A code file that this step creates or grows past `codeReview.maxFileLines` (default 300 lines) gets a split finding. Files that were already over the limit before the step are not flagged. The review sub-agent reads the file and decides:
+
+- if it has a clear split boundary (a self-contained sub-component, hook, utility, type group, or constant table), splitting is a must-fix item
+- if it has no clear boundary, the file stays as is, and the review sub-agent states why in its result
+
+This finding alone does not fail `vibe code-review`; the must-fix gate enforces it.
+
+The step line-count and single-file rules only count code. Tests (`*.test.*`, `*.spec.*`, `test/`, `tests/`, `__tests__/`) and docs (`*.md`, `*.mdx`, `*.mdc`, `doc/`, `docs/`, `spec/`, `specs/`) are left out of them, so a docs-only or test-heavy step is not flagged for size.
 
 ### Reviewing against project conventions and current best practices
 
@@ -262,7 +278,38 @@ vibe context PROJ-123
 **Usage:**
 ```bash
 vibe plan PROJ-123
+vibe plan PROJ-123 --from plan-draft.json
 ```
+
+Without `--from`, the generated steps are only a skeleton (generic titles, few or no `expectedFiles`). Use it to see the shape, then write the real plan in a JSON file and import it with `--from`. Do not edit `plan.json` in the state directory by hand.
+
+`--from` file format. Only `steps[].title` is required:
+
+```json
+{
+  "summary": "One-line goal of the task",
+  "assumptions": ["Things the plan relies on that the user has not confirmed"],
+  "risks": ["Known risks that still need an answer"],
+  "decisions": [
+    { "question": "Risk, assumption, or open-question text, copied verbatim", "answer": "What the user decided" }
+  ],
+  "steps": [
+    {
+      "title": "Add reporting API types",
+      "description": "What this step changes and why",
+      "expectedFiles": ["src/api/reporting.ts"],
+      "verifyCommands": ["pnpm lint"],
+      "commitMessage": "feat(PROJ-123): add reporting api types"
+    }
+  ]
+}
+```
+
+- Imported steps are kept as written: no padding to `planning.minSteps`, no truncation of `expectedFiles`. Step ids are assigned in order from 1
+- `verifyCommands` defaults to `verify.stepCommands`; `commitMessage` is re-rendered with `commitPattern`
+- `decisions` records answers the user already gave. `vibe review` skips any risk, assumption, or open question whose text equals a decision's `question`, so answered questions stop counting toward uncertainty
+- When a later `vibe plan` (with or without `--from`) has no `decisions`, the previous plan's decisions are kept
+- An invalid file fails with `PLAN_INVALID` and lists the bad fields
 
 Fails with `STEP_ALREADY_COMMITTED` once any step is committed, because a new plan would reset those steps. Add later work with `vibe fix`.
 
@@ -290,8 +337,9 @@ vibe review PROJ-123
 
 **Agent behavior when not approved:**
 - Read the `openQuestions` in the returned result / `review.md`
-- **Ask the user** to resolve the divergence and uncertainty
-- Rerun `vibe plan <JIRA_KEY>` incorporating the answers, then `vibe review <JIRA_KEY>` again
+- Skip questions the user already answered earlier in the conversation: add them to `decisions` instead of asking again
+- **Ask the user** to resolve the remaining divergence and uncertainty
+- Rerun `vibe plan <JIRA_KEY> --from <file>` with the answers in `decisions`, then `vibe review <JIRA_KEY>` again
 
 **After this (when approved):** For each step, starting from step 1, the lead dispatches a coding sub-agent (`vibe code`) and then a review sub-agent (`vibe code-review`), then runs `vibe commit`.
 
@@ -352,6 +400,15 @@ vibe commit PROJ-123 --step 1
 **Key behaviors:**
 - Fails with `CODE_REVIEW_NOT_PASSED` if the step has not passed code review
 - Fails with `DIFF_OUT_OF_SCOPE` if files fall outside the step scope. Add them with `vibe scope` when they belong to the step
+- Stages every changed file that git reports, including files under dot directories such as `.cursor/rules/`. Only the legacy `.vibe/` directory and gitignored files are skipped
+
+**After every commit, the lead runs `git status --short` and expects empty output.** If files are still listed:
+
+1. If they belong to work that is not committed yet, add them to the next pending step with `vibe scope <JIRA_KEY> --step <N+1> --file <path>` so they go in with that step's commit
+2. If the step was the last one, add them with `vibe fix <JIRA_KEY> --message <text> --file <path>` and run the fix step through the coding phase
+3. If they do not belong to the task, ask the user before discarding them
+
+Never repair a commit with `git commit --amend`, never pass `--no-verify`, and never edit the SHAs in `progress.json` by hand. Each of these skips the git hooks or desynchronizes the vibe state from the branch.
 
 ---
 
@@ -403,7 +460,7 @@ vibe done PROJ-123 --step 2
 **Purpose:** Run task-level verification commands across all changes.
 
 **What it does:**
-1. Runs `verify.taskCommands` from the workspace config (when unset, they are inferred from the repo's package scripts)
+1. Runs `verify.taskCommands` from the workspace config. When the config file is first created, they are inferred from the repo's package scripts, in this order when present: `lint:ts`, `lint:js:check`, `lint:css:check`, `typecheck`, `specs:check`, `test`, `build`. A config created before `test` was inferred keeps its old list, so check it once per repo
 2. If any command fails with exit code 127 (command not found), provides a hint to update the vibe config
 3. If all pass, transitions task to `pr_ready` status
 
@@ -415,7 +472,7 @@ Fails with `STEPS_NOT_COMMITTED` while any plan step is uncommitted.
 vibe verify PROJ-123
 ```
 
-**Note:** If verify commands don't match your project's actual scripts, update the vibe config file at `.vibe/config.json`:
+**Note:** If verify commands don't match your project's actual scripts (for example `test` is missing), update `config.json` in the workspace state directory (see [State Management](#state-management)):
 ```json
 {
   "verify": {
@@ -536,7 +593,7 @@ Here is the complete workflow an AI agent should follow:
 ### Phase 2: Plan → Review → Plan loop (until uncertainty is low)
 
 ```
-3. vibe plan <JIRA_KEY>           # Lead or plan sub-agent
+3. vibe plan <JIRA_KEY> [--from <file>]   # Lead or plan sub-agent
 4. vibe review <JIRA_KEY>         # Lead or review sub-agent
    ├─ if NOT approved:
    │    → lead asks the user the open questions (resolve divergence/uncertainty)
@@ -554,11 +611,12 @@ For each step N in the plan (starting from 1):
 ```
 6. Coding sub-agent:  vibe skill → edit code for step N → vibe code <JIRA_KEY> --step N
 7. Review sub-agent:  vibe skill → vibe code-review <JIRA_KEY> --step N   # no file edits
-   ├─ if NOT passed:
+   ├─ if NOT passed, or the review sub-agent returned must-fix items:
    │    → lead dispatches a new coding sub-agent with the findings (over-engineering first)
-   │    → then a new review sub-agent; repeat until passed
-   └─ if passed:
+   │    → then a new review sub-agent; repeat until both gates pass
+   └─ if passed and no must-fix items:
 8. Lead:              vibe commit <JIRA_KEY> --step N
+9. Lead:              git status --short   # must be empty; otherwise recover with vibe scope / vibe fix
 ```
 
 **Important agent behaviors during implementation:**
@@ -572,9 +630,9 @@ For each step N in the plan (starting from 1):
 ### Phase 4: Verification & PR draft (stop before push)
 
 ```
-9.  Verify sub-agent: vibe skill → vibe verify <JIRA_KEY>   # no file edits
+10. Verify sub-agent: vibe skill → vibe verify <JIRA_KEY>   # no file edits; report skipped package scripts
     └─ if failed: lead vibe fix → coding sub-agent → review sub-agent → lead commit → new verify sub-agent
-10. Lead:             vibe pr <JIRA_KEY>                    # Generate PR DRAFT only
+11. Lead:             vibe pr <JIRA_KEY>                    # Generate PR DRAFT only
 ```
 
 **After the PR draft is generated, STOP.** Do not push the branch or create the PR. Present the draft to the user and wait for their explicit review/approval before performing any `git push` / PR creation.
@@ -583,7 +641,20 @@ For each step N in the plan (starting from 1):
 
 ## State Management
 
-Vibe-cli maintains state in `.vibe/tasks/<JIRA_KEY>/`:
+Vibe-cli keeps all state outside the repository, in a per-workspace state directory:
+
+| Platform | Workspace state directory |
+|----------|---------------------------|
+| macOS | `~/Library/Application Support/vibe-cli/workspaces/<repo>-<hash>/` |
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/vibe-cli/workspaces/<repo>-<hash>/` |
+| Windows | `%APPDATA%\vibe-cli\workspaces\<repo>-<hash>\` |
+
+- `<repo>` is the lowercased repository folder name; `<hash>` is the first 12 hex characters of the SHA-1 of the repository's absolute path
+- Setting `VIBE_STATE_ROOT` replaces `.../vibe-cli` with that directory
+- The fastest way to find it: every `vibe context`, `vibe plan`, `vibe review`, and `vibe code-review` result prints a `reportPath` inside `<state dir>/tasks/<JIRA_KEY>/`
+- The repository's `.vibe/` directory is legacy and no longer used
+
+The workspace config is `<state dir>/config.json`. Each task lives in `<state dir>/tasks/<JIRA_KEY>/`:
 
 | File | Content |
 |------|---------|
@@ -628,7 +699,7 @@ initialized → context_ready → planned ⇄ reviewing → plan_approved → co
 
 ## Configuration
 
-Vibe-cli config is stored in `.vibe/config.json`. Key settings:
+Vibe-cli config is stored in `<state dir>/config.json` (see [State Management](#state-management)). It is created on first run. Key settings:
 
 ```json
 {
@@ -662,8 +733,8 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
   "codeReview": {
     "riskThreshold": 0.25,
     "maxIterations": 3,
-    "maxNewFiles": 3,
-    "maxInsertions": 400
+    "maxInsertions": 1000,
+    "maxFileLines": 300
   }
 }
 ```
@@ -675,8 +746,9 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 **Code review settings (`codeReview`):**
 - `riskThreshold`: The diff passes when `riskScore <= threshold`. Lower it to be stricter about over-engineering.
 - `maxIterations`: Safety cap on the code → code-review loop. When reached, the review is force-passed.
-- `maxNewFiles`: Pure-addition file count above this is flagged as possible over-engineering.
-- `maxInsertions`: Total inserted lines above this is flagged as too large a step; a single file above half this value is flagged for doing too much.
+- `maxInsertions`: Total inserted code lines above this is flagged as too large a step.
+- `maxFileLines`: A code file that this step creates or grows past this many lines must be split when it has a clear split boundary (see the single-file size rule above).
+- Tests and docs are not counted by `maxInsertions` or `maxFileLines`. The number of new files in a step is not limited.
 
 ---
 
@@ -689,6 +761,7 @@ Vibe-cli config is stored in `.vibe/config.json`. Key settings:
 | `GIT_DIRTY_WORKTREE` | Uncommitted changes exist | Commit or stash changes first |
 | `BRANCH_ALREADY_EXISTS` | Feature branch already exists | Use `vibe resume` or delete the branch |
 | `PLAN_NOT_FOUND` | No plan exists for the task | Run `vibe plan` first |
+| `PLAN_INVALID` | The `vibe plan --from` file does not match the plan format | Fix the fields listed in the error and rerun |
 | `STEP_NOT_FOUND` | Step number not in plan | Check plan with `vibe show` |
 | `STEP_ALREADY_COMMITTED` | Step was already committed, or `vibe plan` ran after a commit | Move to the next step; add later work with `vibe fix` |
 | `STEPS_NOT_COMMITTED` | `vibe verify` or `vibe pr` ran with uncommitted steps | Finish each open step through code, code-review, commit |
@@ -715,11 +788,11 @@ Run `vibe skill` before anything else. The printed guide is the prerequisite for
 7. **Split coding and review across sub-agents** — the lead dispatches a coding sub-agent (`vibe code`) and a separate review sub-agent (`vibe code-review`) for every step, commits with `vibe commit`, and dispatches a verify sub-agent for `vibe verify`. Do not use `vibe done`
 8. **Read the plan before implementing** — use `vibe show` to understand expectedFiles and commit messages
 9. **One step at a time** — implement, review, commit, then move to the next step
-10. **Don't manually `git add` or `git commit`** — vibe-cli handles this
+10. **Don't manually `git add` or `git commit`** — vibe-cli handles this. Check `git status --short` is empty after each `vibe commit`, and recover leftover files with `vibe scope` or `vibe fix`, never with `--amend` or `--no-verify`
 11. **Respect step scope** — changes should be in or near the expectedFiles directory
 12. **Use `--dry-run` for preview** — if unsure, run with `--dry-run` first to see what would happen
 13. **Check `vibe resume` if interrupted** — it tells you the next recommended action
-14. **Update verify commands if needed** — if `vibe verify` fails with command not found, update `.vibe/config.json`
+14. **Update verify commands if needed** — if `vibe verify` fails with command not found, or skips an existing `test` script, update `<state dir>/config.json`
 
 ---
 
@@ -735,13 +808,14 @@ vibe start PROJ-123
 # 2. Build context
 vibe context PROJ-123
 
-# 3. Generate plan
+# 3. Generate the skeleton, write the real plan to a JSON file, then import it
 vibe plan PROJ-123
+vibe plan PROJ-123 --from plan-draft.json
 
 # 4. Review plan (plan → review → plan loop)
 vibe review PROJ-123
 #    If NOT approved: ask the user the open questions, then:
-#      vibe plan PROJ-123     # refine with the answers
+#      vibe plan PROJ-123 --from plan-draft.json   # answers recorded in "decisions"
 #      vibe review PROJ-123   # re-review; repeat until approved
 
 # 5. Inspect the approved plan

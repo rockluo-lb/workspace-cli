@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SimpleGitService } from '../../src/core/git/local-git-service.js';
-import { createTempDir, initGitRepo } from '../helpers/test-env.js';
+import { createTempDir, initGitRepo, run } from '../helpers/test-env.js';
 
 describe('git service', () => {
 	it('shows dirty files in the clean worktree error', async () => {
@@ -24,7 +24,7 @@ describe('git service', () => {
 		}
 	});
 
-	it('ignores .cursor files when checking worktree cleanliness and diffs', async () => {
+	it('ignores gitignored .cursor files when checking worktree cleanliness and diffs', async () => {
 		const rootDir = await createTempDir('vibe-git-service-cursor-');
 		await initGitRepo(rootDir);
 		await fs.ensureDir(path.join(rootDir, '.cursor'));
@@ -35,6 +35,24 @@ describe('git service', () => {
 		await expect(service.ensureCleanWorktree()).resolves.toBeUndefined();
 		await expect(service.getDiffFiles()).resolves.toEqual([]);
 		await expect(service.getDiffStat()).resolves.toEqual([]);
+	});
+
+	it('stages and commits tracked files under dot directories', async () => {
+		const rootDir = await createTempDir('vibe-git-service-dotdir-');
+		await initGitRepo(rootDir);
+		await fs.writeFile(path.join(rootDir, '.gitignore'), '.cursor/state.json\n', 'utf8');
+		run('git', ['commit', '-am', 'chore: track cursor rules'], rootDir);
+		await fs.ensureDir(path.join(rootDir, '.cursor', 'rules'));
+		await fs.writeFile(path.join(rootDir, '.cursor', 'state.json'), '{"ok":true}', 'utf8');
+		await fs.writeFile(path.join(rootDir, '.cursor', 'rules', 'style.mdc'), '# Style\n', 'utf8');
+
+		const service = new SimpleGitService(rootDir);
+		const files = await service.getDiffFiles();
+		expect(files).toEqual([path.normalize('.cursor/rules/style.mdc')]);
+
+		await service.addFiles(files);
+		await service.commit('feat(CRMCN-1): add style rule');
+		expect(run('git', ['status', '--short'], rootDir)).toBe('');
 	});
 
 	it('reports diff stats for tracked edits and untracked files', async () => {
@@ -50,7 +68,9 @@ describe('git service', () => {
 		const added = stats.find((stat) => stat.file === 'added.ts');
 
 		expect(readme?.insertions).toBeGreaterThan(0);
-		expect(added?.insertions).toBeGreaterThan(0);
+		expect(readme?.lines).toBe(3);
+		expect(added?.insertions).toBe(2);
 		expect(added?.deletions).toBe(0);
+		expect(added?.lines).toBe(2);
 	});
 });

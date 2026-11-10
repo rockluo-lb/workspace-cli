@@ -38,6 +38,9 @@ ${plan.assumptions.map((item) => `- ${item}`).join('\n') || '- None'}
 ## Risks
 ${plan.risks.map((item) => `- ${item}`).join('\n') || '- None'}
 
+## Decisions
+${(plan.decisions ?? []).map((item) => `- ${item.question}\n  - ${item.answer}`).join('\n') || '- None'}
+
 ${steps}
 `;
 }

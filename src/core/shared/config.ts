@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { resolveWorkspaceStateDir } from './state-paths.js';
 import type { VibeConfig } from './types.js';
 
-const VERIFY_SCRIPT_PRIORITY = ['lint:ts', 'lint:js:check', 'lint:css:check', 'typecheck', 'specs:check', 'build'];
+const VERIFY_SCRIPT_PRIORITY = ['lint:ts', 'lint:js:check', 'lint:css:check', 'typecheck', 'specs:check', 'test', 'build'];
 
 export async function inferProjectDefaults(rootDir: string): Promise<{
 	verify?: VibeConfig['verify'];
@@ -75,8 +75,8 @@ const configSchema = z.object({
 	codeReview: z.object({
 		riskThreshold: z.number().min(0).max(1).default(0.25),
 		maxIterations: z.number().int().min(1).default(3),
-		maxNewFiles: z.number().int().min(1).default(3),
-		maxInsertions: z.number().int().min(1).default(400),
+		maxInsertions: z.number().int().min(1).default(1000),
+		maxFileLines: z.number().int().min(1).default(300),
 	}),
 });
 

@@ -35,7 +35,8 @@ export type AppErrorCode =
 	| 'CAPABILITY_UNAVAILABLE'
 	| 'TARGET_NOT_CONFIRMED'
 	| 'STEPS_NOT_COMMITTED'
-	| 'TASK_NOT_VERIFIED';
+	| 'TASK_NOT_VERIFIED'
+	| 'PLAN_INVALID';
 
 export interface ExternalLink {
 	type: LinkType;
@@ -168,12 +169,18 @@ export interface PlanStep {
 	status: PlanStepStatus;
 }
 
+export interface PlanDecision {
+	question: string;
+	answer: string;
+}
+
 export interface ExecutionPlan {
 	jiraKey: string;
 	branch: string;
 	summary: string;
 	assumptions: string[];
 	risks: string[];
+	decisions?: PlanDecision[];
 	steps: PlanStep[];
 }
 
@@ -181,6 +188,7 @@ export interface ExecutionPlanDraft {
 	summary?: string;
 	assumptions?: string[];
 	risks?: string[];
+	decisions?: PlanDecision[];
 	steps: Array<Partial<PlanStep>>;
 }
 
@@ -223,6 +231,7 @@ export interface DiffStat {
 	file: string;
 	insertions: number;
 	deletions: number;
+	lines?: number;
 }
 
 export interface ProgressCommit {
@@ -284,8 +293,8 @@ export interface VibeConfig {
 	codeReview: {
 		riskThreshold: number;
 		maxIterations: number;
-		maxNewFiles: number;
 		maxInsertions: number;
+		maxFileLines: number;
 	};
 }
 
@@ -582,7 +591,7 @@ export interface TaskStore {
 export interface WorkflowOrchestrator {
 	startTask(jiraKey: string, options?: StartTaskOptions): Promise<StartTaskResult>;
 	buildContext(jiraKey: string): Promise<ContextResult>;
-	generatePlan(jiraKey: string): Promise<PlanResult>;
+	generatePlan(jiraKey: string, options?: { draft?: ExecutionPlanDraft }): Promise<PlanResult>;
 	reviewPlan(jiraKey: string): Promise<ReviewResult>;
 	executeStep(jiraKey: string, stepId: number, options?: { dryRun?: boolean }): Promise<ExecuteStepResult>;
 	reviewCode(jiraKey: string, stepId: number): Promise<CodeReviewResult>;
@@ -604,6 +613,7 @@ export interface WorkflowOrchestratorDeps {
 	repoAnalyzer: RepoAnalyzer;
 	planner: {
 		generate(params: AIPlanInput & { jiraKey: string }): Promise<ExecutionPlan>;
+		fromDraft(jiraKey: string, issueSummary: string, draft: ExecutionPlanDraft): ExecutionPlan;
 		render(plan: ExecutionPlan): string;
 	};
 	executor: StepExecutor;
