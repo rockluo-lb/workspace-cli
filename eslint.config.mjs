@@ -1,16 +1,11 @@
 import globals from 'globals';
 
+import eslintReact from '@eslint-react/eslint-plugin';
 import pluginVanilla from '@eslint/js';
 import pluginPrettier from 'eslint-config-prettier';
-import pluginReact from 'eslint-plugin-react';
 import pluginReactHooks from 'eslint-plugin-react-hooks';
 import pluginReactRefresh from 'eslint-plugin-react-refresh';
 import pluginTypescript from 'typescript-eslint';
-
-const pluginReactWrapper = {
-	settings: { react: { version: 'detect' } },
-	...pluginReact.configs.flat.recommended,
-};
 
 const pluginReactHooksWrapper = {
 	plugins: { 'react-hooks': pluginReactHooks },
@@ -29,15 +24,14 @@ export default [
 	pluginVanilla.configs.recommended,
 	pluginPrettier,
 	...pluginTypescript.configs.recommended,
-	pluginReactWrapper,
+	eslintReact.configs.recommended,
 	pluginReactHooksWrapper,
 	pluginReactRefresh.configs.recommended,
 	{
 		rules: {
 			'no-unused-expressions': 'off',
-			'react/prop-types': 'off',
-			'react/react-in-jsx-scope': 'off',
 			'@typescript-eslint/no-unused-expressions': 'off',
+			'@eslint-react/no-array-index-key': 'off',
 			'@typescript-eslint/no-explicit-any': 'off',
 			'@typescript-eslint/consistent-type-imports': 'error',
 			'@typescript-eslint/no-unused-vars': [
@@ -55,9 +49,10 @@ export default [
 		},
 	},
 	{
-		files: ['**/*.test.{ts,tsx}'],
+		files: ['**/*.test.{ts,tsx}', 'tests/helpers/**/*.ts'],
 		rules: {
 			'react-refresh/only-export-components': 'off',
+			'@eslint-react/no-unnecessary-use-prefix': 'off',
 		},
 	},
 ];

@@ -141,7 +141,7 @@ describe('workflow integration', () => {
 
 		let review = await app.orchestrator.reviewPlan('CRMCN-42');
 		if (!review.review.approved) {
-			review = await app.orchestrator.reviewPlan('CRMCN-42');
+			await app.orchestrator.reviewPlan('CRMCN-42');
 			review = await app.orchestrator.reviewPlan('CRMCN-42');
 		}
 		expect(review.review.approved).toBe(true);
