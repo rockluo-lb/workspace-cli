@@ -205,6 +205,7 @@ export interface ExecuteStepInput {
 	repoContext: RepoContext;
 	dryRun?: boolean;
 	maxFiles?: number;
+	changedFiles?: string[];
 }
 
 export interface CommandResult {

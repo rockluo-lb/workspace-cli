@@ -69,4 +69,18 @@ describe('config loading', () => {
 		expect(config.verify.stepCommands).toEqual(['pnpm lint:ts']);
 		expect(config.verify.taskCommands).toEqual(['pnpm lint:ts', 'pnpm specs:check', 'pnpm test', 'pnpm build']);
 	});
+
+	it('lints only changed files per step when the repo uses eslint', async () => {
+		const rootDir = await createTempDir('vibe-config-eslint-');
+		await useTempStateRoot();
+		await fs.writeJson(path.join(rootDir, 'package.json'), {
+			scripts: { 'lint:ts': 'tsc --noEmit', build: 'tsc' },
+			devDependencies: { eslint: '^10.0.0' },
+		});
+		await fs.writeFile(path.join(rootDir, 'yarn.lock'), '', 'utf8');
+
+		const config = await loadOrCreateConfig(rootDir);
+		expect(config.verify.stepCommands).toEqual(['yarn eslint {files}']);
+		expect(config.verify.taskCommands).toEqual(['yarn lint:ts', 'yarn build']);
+	});
 });

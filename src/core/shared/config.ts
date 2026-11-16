@@ -5,6 +5,7 @@ import { resolveWorkspaceStateDir } from './state-paths.js';
 import type { VibeConfig } from './types.js';
 
 const VERIFY_SCRIPT_PRIORITY = ['lint:ts', 'lint:js:check', 'lint:css:check', 'typecheck', 'specs:check', 'test', 'build'];
+const ESLINT_RUNNERS = { npm: 'npx eslint', yarn: 'yarn eslint', pnpm: 'pnpm exec eslint' } as const;
 
 export async function inferProjectDefaults(rootDir: string): Promise<{
 	verify?: VibeConfig['verify'];
@@ -12,7 +13,11 @@ export async function inferProjectDefaults(rootDir: string): Promise<{
 	const packageJsonPath = path.join(rootDir, 'package.json');
 	let verify: VibeConfig['verify'] | undefined;
 	if (await fs.pathExists(packageJsonPath)) {
-		const packageJson = (await fs.readJson(packageJsonPath)) as { scripts?: Record<string, string> };
+		const packageJson = (await fs.readJson(packageJsonPath)) as {
+			scripts?: Record<string, string>;
+			dependencies?: Record<string, string>;
+			devDependencies?: Record<string, string>;
+		};
 		const scripts = Object.keys(packageJson.scripts ?? {});
 		const selected = VERIFY_SCRIPT_PRIORITY.filter((name) => scripts.includes(name));
 		if (selected.length > 0) {
@@ -21,11 +26,12 @@ export async function inferProjectDefaults(rootDir: string): Promise<{
 				: (await fs.pathExists(path.join(rootDir, 'yarn.lock')))
 					? 'yarn'
 					: 'pnpm';
+			const hasEslint = Boolean(packageJson.devDependencies?.eslint ?? packageJson.dependencies?.eslint);
 			const stepNames = selected.filter((name) => name.startsWith('lint') || name === 'typecheck');
 			verify = {
-				stepCommands: (stepNames.length > 0 ? stepNames : selected.slice(0, 1)).map(
-					(name) => `${packageManager} ${name}`
-				),
+				stepCommands: hasEslint
+					? [`${ESLINT_RUNNERS[packageManager]} {files}`]
+					: (stepNames.length > 0 ? stepNames : selected.slice(0, 1)).map((name) => `${packageManager} ${name}`),
 				taskCommands: selected.map((name) => `${packageManager} ${name}`),
 			};
 		}

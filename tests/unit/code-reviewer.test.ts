@@ -117,6 +117,11 @@ describe('HeuristicCodeReviewer', () => {
 		expect(review.findings.some((finding) => finding.category === 'convention')).toBe(true);
 	});
 
+	it('accepts a changed-files eslint command as step lint coverage', () => {
+		const review = reviewer.review(makeInput({ step: { verifyCommands: ['pnpm exec eslint {files}'] } }));
+		expect(review.findings).toHaveLength(0);
+	});
+
 	it('flags complexity when the diff is too large and misses tests', () => {
 		const review = reviewer.review(
 			makeInput({

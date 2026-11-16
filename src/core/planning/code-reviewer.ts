@@ -114,7 +114,9 @@ export class HeuristicCodeReviewer implements CodeReviewer {
 			const stepVerify = step.verifyCommands.join(' ');
 			const lintScripts = conventions.scripts.filter((script) => /lint|typecheck|format/.test(script));
 			if (conventions.lintTools.length > 0 && lintScripts.length > 0) {
-				const covered = lintScripts.some((script) => stepVerify.includes(script));
+				const covered =
+					lintScripts.some((script) => stepVerify.includes(script)) ||
+					conventions.lintTools.some((tool) => stepVerify.includes(tool));
 				if (!covered) {
 					addFinding({
 						category: 'convention',

@@ -2,6 +2,13 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import type { AIProvider, ExecuteStepInput, ExecuteStepResult, VerifyService } from '../shared/types.js';
 
+const FILES_PLACEHOLDER = '{files}';
+const LINTABLE_FILE_PATTERN = /\.(js|mjs|cjs|jsx|ts|tsx)$/i;
+
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 export class DefaultStepExecutor {
 	constructor(
 		private readonly rootDir: string,
@@ -34,7 +41,9 @@ export class DefaultStepExecutor {
 
 		const verifyCommands =
 			draft.verifyCommands && draft.verifyCommands.length > 0 ? draft.verifyCommands : input.step.verifyCommands;
-		const verifyResults = input.dryRun ? [] : await this.verifyService.run(verifyCommands);
+		const verifyResults = input.dryRun
+			? []
+			: await this.verifyService.run(await this.expandFiles(verifyCommands, input.changedFiles ?? []));
 
 		return {
 			changedFiles: input.step.expectedFiles,
@@ -42,5 +51,23 @@ export class DefaultStepExecutor {
 			warnings: draft.warnings,
 			verifyResults,
 		};
+	}
+
+	private async expandFiles(commands: string[], changedFiles: string[]): Promise<string[]> {
+		if (!commands.some((command) => command.includes(FILES_PLACEHOLDER))) {
+			return commands;
+		}
+		const lintable: string[] = [];
+		for (const file of changedFiles) {
+			if (LINTABLE_FILE_PATTERN.test(file) && (await fs.pathExists(path.join(this.rootDir, file)))) {
+				lintable.push(shellQuote(file));
+			}
+		}
+		return commands.flatMap((command) => {
+			if (!command.includes(FILES_PLACEHOLDER)) {
+				return [command];
+			}
+			return lintable.length > 0 ? [command.replaceAll(FILES_PLACEHOLDER, lintable.join(' '))] : [];
+		});
 	}
 }

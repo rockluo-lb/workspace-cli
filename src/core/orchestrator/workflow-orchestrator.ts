@@ -449,6 +449,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			repoContext,
 			dryRun: options?.dryRun,
 			maxFiles: this.deps.config.planning.maxFilesPerStep,
+			changedFiles: options?.dryRun ? [] : await this.deps.gitService.getDiffFiles(),
 		});
 
 		const failedVerify = (result.verifyResults ?? []).filter((item) => item.code !== 0);
