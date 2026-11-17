@@ -13,17 +13,18 @@ Run `vibe skill` and follow this guide before any other `vibe` command. The comm
 ## Workflow Lifecycle
 
 ```
-start → context → ┌─────────────────────────────┐ → per step: ┌──────────────────────────────┐ → verify → pr (draft only)
-                  │  plan → review → plan (loop) │             │ code → code-review → code    │
-                  └─────────────────────────────┘             │ (loop) → commit when passed  │
-                     until uncertainty is low                  └──────────────────────────────┘
-                                                                  until risk is low
+start → context → ┌─────────────────────────────┐ → per step: ┌───────────────────────────┐ → branch review → verify → pr (draft only)
+                  │  plan → review → plan (loop) │             │ code → simple check →     │   (loop until no
+                  └─────────────────────────────┘             │ commit                    │    must-fix items)
+                     until uncertainty is low                  └───────────────────────────┘
 ```
 
 This workflow has **two enforced loops**:
 
 - **plan → review → plan** (before any code): drives uncertainty down until the plan is `plan_approved`. Prevention layer.
-- **code → code-review → code** (before each commit): drives risk down until the diff passes review. Detection layer — this is where over-engineering is actually caught, because only a real diff reveals unnecessary abstraction.
+- **branch review → fix → branch review** (after all steps are committed): one review of the whole branch diff, repeated until it returns no must-fix items. Detection layer — this is where over-engineering is caught, because only a real diff reveals unnecessary abstraction.
+
+Each step in between only runs the project's simple check (`vibe code`, which lints the changed files) before it is committed. There is no per-step review.
 
 | Phase | Command | Description |
 |-------|---------|-------------|
@@ -32,9 +33,10 @@ This workflow has **two enforced loops**:
 | 2. Context | `vibe context <JIRA_KEY>` | Resolve Figma/Confluence links, analyze repo and project conventions |
 | 3. Plan | `vibe plan <JIRA_KEY>` | Generate step-by-step execution plan |
 | 4. Plan Review | `vibe review <JIRA_KEY>` | Score plan uncertainty, surface open questions; loops back to plan until approved |
+| 5a. Brief | `vibe brief <JIRA_KEY> --role <role> --step <N>` | Lead writes the brief the next sub-agent reads instead of the full skill and context |
 | 5. Code | `vibe code <JIRA_KEY> --step <N>` | Coding sub-agent implements the step and lints the changed files |
-| 6. Code Review | `vibe code-review <JIRA_KEY> --step <N>` | Lead scores diff risk (over-engineering, conventions, complexity); High-tier steps also get a review sub-agent; loops back to code until passed |
-| 7. Commit | `vibe commit <JIRA_KEY> --step <N>` | Lead agent commits the step after it passes the gate; the whole branch gets one review sub-agent after the last step |
+| 6. Commit | `vibe commit <JIRA_KEY> --step <N>` | Lead commits the step once `vibe code` has passed. No per-step review |
+| 7. Branch Review | `vibe brief <JIRA_KEY> --role branch-review` | After the last step, one review sub-agent reviews the whole branch; must-fix items go through `vibe fix` until none remain |
 | 8. Verify | `vibe verify <JIRA_KEY>` | Verify sub-agent runs task-level verification (lint, typecheck, test) |
 | 9. PR | `vibe pr <JIRA_KEY>` | Lead agent generates a PR **draft** report only — never auto-pushes or opens a PR |
 
@@ -42,19 +44,49 @@ This workflow has **two enforced loops**:
 
 ## Multi-Agent Roles
 
-vibe work is done by one lead agent and several sub-agents. Every sub-agent runs `vibe skill` first.
+vibe work is done by one lead agent and several sub-agents. Preparation sub-agents run `vibe skill` first. Coding and branch review sub-agents do not: the lead runs `vibe brief` for each of them, and the brief carries the role rules, the step, the user's decisions, and the matching project rules. The verify sub-agent needs only the lead's prompt.
 
 ### Lead agent
 
 The agent that receives the user's first message is the lead for the whole task. It owns the conversation with the user and the task state:
 
-- runs `vibe start`, `vibe commit`, `vibe fix`, `vibe pr`, `vibe resume`, `vibe scope`, and `vibe abort`
+- runs `vibe start`, `vibe brief`, `vibe commit`, `vibe fix`, `vibe pr`, `vibe resume`, `vibe scope`, and `vibe abort`
 - decides when to dispatch sub-agents, picks each sub-agent's model and reasoning effort (at most High) by task complexity, and writes their prompts
 - is the only agent that asks the user questions. Sub-agents return open questions to the lead instead of guessing
 - reads each sub-agent's result and the reports under `reports/` before moving to the next phase
 - does not write feature code and does not review its own diff
 
 Dispatch one sub-agent at a time. Sub-agents share one worktree and one task state, so two of them must never run vibe commands or edit files at the same time.
+
+### Sub-agent reuse by role
+
+The lead keeps one sub-agent per role for the whole task and resumes it instead of starting a new one. A resumed agent keeps its context: the rules, conventions, and code it already read do not have to be read again.
+
+| Role | Reused for |
+|------|------------|
+| coding | all coding in the task: every plan step, every `VERIFY_FAILED` retry, and every `vibe fix` step from the branch review or `vibe verify` |
+| branch review | the branch review and its reruns after fixes |
+| verify | every `vibe verify` run |
+| preparation (context, plan, plan review) | the same preparation work; usually the lead does it itself |
+
+How to reuse:
+
+- Record each agent's ID and model when it first returns. Resume it with the Task tool's `resume` parameter and that ID
+- A resumed prompt is short: the new `vibe brief` path and what changed. Tell the agent to read only the brief's Step, Decisions already made, and Lead notes sections, plus any rule file it has not read yet
+- For a fix step, resume the coding agent with the new brief path and the findings to fix
+- The lead still commits every step itself with `vibe commit` and checks `git status --short` before resuming the coding agent for the next step
+- Coding and review are always different agents. Never resume the coding agent to review, and never resume a review agent to write code
+
+**One coding agent for the whole task.** Pick its model and reasoning effort once, by the most complex step in the approved plan (see [Sub-agent model selection](#sub-agent-model-selection)), because a resumed agent keeps its original model.
+
+Start a new agent for a role, and record its ID in place of the old one, only when:
+
+- the resume call fails, for example because the agent ID is no longer available in this session
+- the agent returned a wrong or incomplete result twice in a row; the new agent is one tier higher (see [Sub-agent model selection](#sub-agent-model-selection))
+- a `vibe fix` step needs a higher tier than the current agent's model
+- the next step works in a different app with entirely different project rules
+
+A new coding agent gets the full brief for its first step, plus a `--note` summarizing what earlier steps already built.
 
 ### Preparation phase: lead decides
 
@@ -66,38 +98,35 @@ The lead may run `vibe context`, `vibe plan`, and `vibe review` itself, or dispa
 
 A preparation sub-agent returns a short summary, the report path, and any open questions. The plan → review → plan loop and its user questions still go through the lead.
 
-### Coding phase: coding sub-agent per step, review sub-agent only for High-tier steps
+### Coding phase: coding sub-agent per step, simple check only
 
-For every step N the lead dispatches a coding sub-agent. Never use `vibe done` here, because it merges coding and review into one agent.
+For every step N the lead resumes the task's coding sub-agent, or dispatches it for step 1 or when it must be replaced (see [Sub-agent reuse by role](#sub-agent-reuse-by-role)). Never use `vibe done` here, because it adds a per-step code review.
+
+Before each dispatch, the lead runs `vibe brief <JIRA_KEY> --role coding --step N` and passes the returned `reportPath` in the prompt. Add anything the brief cannot know, such as branch review findings for a fix step, with `--note`.
 
 1. **Coding sub-agent**
-   - reads `vibe show <JIRA_KEY>`, the step's `expectedFiles`, and `context.md`
+   - reads only its brief; it opens `context.md` or an on-demand rule only when the brief says the step needs it
    - makes the code changes for step N only
    - runs `vibe code <JIRA_KEY> --step N`, which lints only the files this step changed (see `vibe code`). On `VERIFY_FAILED`, fixes the code and runs it again
    - does not run typecheck, tests, or build; those run once in the verification phase
-   - does not run `vibe code-review` or `vibe commit`
+   - does not run `vibe commit`
    - returns the changed files and the verify result
-2. **Per-step gate, run by the lead**
-   - the lead runs `vibe code-review <JIRA_KEY> --step N` itself. It is a fast CLI check and needs no sub-agent
-   - if it does not pass, the lead dispatches a new coding sub-agent with the findings and reruns the check
-3. **Review sub-agent, High-tier steps only** (a fresh agent, never the coding sub-agent)
-   - dispatched only for steps rated High in [Sub-agent model selection](#sub-agent-model-selection): state, permissions, data flow, concurrency, cross-module changes, or code ported from a reference repository
-   - runs `vibe code-review <JIRA_KEY> --step N` and reads the actual diff against project conventions
-   - does not edit files
-   - returns `passed`, `riskScore`, the CLI findings, its own must-fix items from reading the diff (empty list when there are none), and the report path
+2. **Lead commit**
+   - once `vibe code` has passed, the lead runs `vibe commit <JIRA_KEY> --step N` and moves to step N+1
 
-A Low or Medium step is committable when `vibe code-review` reports `passed: true`. A High step also needs the review sub-agent's must-fix list to be empty; a passing vibe score does not override a must-fix item. Then the lead runs `vibe commit <JIRA_KEY> --step N` and moves to step N+1.
+No review of any kind runs during the coding phase, whatever the step's tier: no review sub-agent and no `vibe code-review`. Reading the diff against conventions happens once, in the branch review phase.
 
 ### Branch review phase: one review sub-agent, required
 
-After all steps are committed and before verification, the lead dispatches one review sub-agent for the whole branch:
+After all steps are committed and before verification, the lead runs `vibe brief <JIRA_KEY> --role branch-review` and dispatches one review sub-agent for the whole branch:
 
-- reads `git diff <baseBranch>...HEAD` against project conventions, covering every step that did not get a per-step review
+- reads its brief, which lists every step, the rules matching all changed files, and the exact diff range (from the parent of the first step commit to `HEAD`)
+- reads that diff against the rules in the brief, covering every step
 - applies the over-engineering and convention rules from the code review loop, including the single-file split rule
 - does not edit files
 - returns its must-fix items, each with the file, the problem, and the step it belongs to
 
-If the list is not empty, the lead runs `vibe fix <JIRA_KEY> --message <text> --file <path>` for the fixes, runs that fix step through the coding phase, and dispatches a new branch review sub-agent. Move on to verification only when the must-fix list is empty.
+If the list is not empty, the lead runs `vibe fix <JIRA_KEY> --message <text> --file <path>` for the fixes, runs that fix step through the coding phase, and resumes the branch review sub-agent to review again. Move on to verification only when the must-fix list is empty.
 
 ### Verification phase: verify sub-agent, required
 
@@ -110,11 +139,11 @@ After all steps are committed, the lead MUST dispatch a verify sub-agent:
 
 A verify run that skipped an existing `test` script does not count as a pass until the lead has run the tests.
 
-If verification fails, the lead runs `vibe fix <JIRA_KEY> --message <text> --file <path>` to append a fix step, then runs that step through the coding phase: coding sub-agent, lead `vibe code-review`, lead commit. Then it dispatches a new verify sub-agent. Only after a verify sub-agent reports a pass does the lead run `vibe pr`.
+If verification fails, the lead runs `vibe fix <JIRA_KEY> --message <text> --file <path>` to append a fix step, then runs that step through the coding phase: coding sub-agent, lead commit. Then it resumes the verify sub-agent to run `vibe verify` again. Only after a verify sub-agent reports a pass does the lead run `vibe pr`.
 
 ### Sub-agent model selection
 
-The lead picks a model and a reasoning effort for every sub-agent based on how complex that sub-agent's task is. Do not use one setting for everything.
+The lead picks a model and a reasoning effort for every sub-agent based on how complex that sub-agent's task is. Do not use one setting for everything. The coding sub-agent is rated once, by the most complex step in the plan, because it handles every step.
 
 | Complexity | Typical tasks | Model | Reasoning effort |
 |------------|---------------|-------|------------------|
@@ -125,9 +154,9 @@ The lead picks a model and a reasoning effort for every sub-agent based on how c
 Rules:
 
 - Reasoning effort never goes above High. Do not use extra-high, max, or similar levels, even when escalating
-- The review sub-agent's model and reasoning effort are never weaker than the coding sub-agent's for the same step
-- If a step fails code review twice, or a sub-agent returns a wrong or incomplete result, dispatch the next sub-agent one tier higher. A High-tier sub-agent stays at High; split the step or ask the user instead
-- A `vibe fix` step is rated by the failure it fixes, not by its size
+- The branch review sub-agent's model and reasoning effort are never weaker than the strongest coding sub-agent used in the task
+- If a sub-agent returns a wrong or incomplete result twice in a row, replace that role's agent with a new one a tier higher (see [Sub-agent reuse by role](#sub-agent-reuse-by-role)). A High-tier sub-agent stays at High; split the step or ask the user instead
+- A `vibe fix` step is rated by the failure it fixes, not by its size. It stays with the current coding agent unless it needs a higher tier
 - When the user names a model, use it
 
 ### Sub-agent prompt contract
@@ -136,9 +165,12 @@ Each sub-agent prompt from the lead includes:
 
 - the Jira key, the step number (if any), and the role: context, plan, review, coding, code review, or verify
 - the chosen model, its reasoning effort (at most High), and the complexity tier that justified it
-- the exact vibe commands the sub-agent may run, and the commands it must not run
-- the user's answers so far that affect this work
-- the result format to return
+- for coding, review, and branch review: the brief's `reportPath`, and the instruction to read it instead of running `vibe skill`. The brief already lists the allowed commands, the result format, the user's decisions, and the project rules, so the prompt does not repeat them
+- for other roles: the exact vibe commands the sub-agent may run and must not run, the user's answers so far that affect this work, and the result format to return
+
+When resuming an agent, send only what changed: the new brief path and the sections to read, or the review findings for a fix round.
+
+Keep the prompt short. Do not paste rule files or `context.md` into it; put task-specific instructions in the brief with `--note`. User answers that change the plan belong in the plan's `decisions`, which every brief includes.
 
 ---
 
@@ -166,24 +198,22 @@ Whenever the review surfaces open questions, or you otherwise encounter divergen
 
 ---
 
-## Agent Loop Model: code → code-review → code
+## Agent Loop Model: code → check → commit, then branch review
 
-This loop sits **between writing code and committing it**, and runs once per step:
+Per step:
 
-1. **Code**: the coding sub-agent makes the changes for step N and runs `vibe code <JIRA_KEY> --step <N>`.
-2. **Code Review**: `vibe code-review <JIRA_KEY> --step <N>` inspects the actual diff and produces:
-   - a `riskScore` (0–1) compared against `codeReview.riskThreshold` (default `0.25`)
-   - `findings` grouped by category: `over-engineering`, `convention`, `complexity`, `dependency`, `scope`
-   - a `passed` verdict
-3. **Decision**:
-   - If **not passed**, the step stays un-committable. You MUST fix the findings (remove over-engineering first, then convention/complexity issues) and rerun `vibe code-review`. Repeat until passed (or until `codeReview.maxIterations` is reached).
-   - If **passed**, the step becomes `reviewed` and can be committed.
+1. **Code**: the coding sub-agent makes the changes for step N and runs `vibe code <JIRA_KEY> --step <N>`, which runs the step's simple check (lint on the changed files). On `VERIFY_FAILED` it fixes the code and reruns.
+2. **Commit**: once the check passes, the lead runs `vibe commit <JIRA_KEY> --step <N>`.
 
-**Hard rule:** `vibe commit` will fail with `CODE_REVIEW_NOT_PASSED` if the step has not passed code review. Never commit around the loop.
+**Hard rule:** `vibe commit` fails with `STEP_NOT_CHECKED` until `vibe code` has passed for that step. Never commit around it.
 
-### Avoiding over-engineering (the primary purpose of this loop)
+After the last step, the branch review sub-agent reads the whole branch diff and returns must-fix items. The lead fixes them through `vibe fix` steps and resumes the branch review until the list is empty.
 
-Apply YAGNI ruthlessly. Before accepting your own diff, check:
+`vibe code-review <JIRA_KEY> --step <N>` still exists as an optional CLI heuristic check, but it is not part of the agent workflow.
+
+### Avoiding over-engineering (what the branch review checks)
+
+Apply YAGNI ruthlessly. The coding sub-agent checks its own diff against these rules, and the branch review enforces them:
 
 - **No speculative abstraction.** Do not add interfaces, factories, managers, wrappers, strategy/adapter layers, or "base" classes for a single concrete use case. Inline it until a second real caller exists.
 - **No unused extension points.** No config flags, hooks, or generic parameters that nothing currently uses.
@@ -191,25 +221,23 @@ Apply YAGNI ruthlessly. Before accepting your own diff, check:
 - **No new dependency** unless nothing existing can do the job; justify it explicitly if the diff touches `package.json`.
 - **Scope discipline.** Only touch what the step's `expectedFiles` implies.
 
-The reviewer flags insertions above `codeReview.maxInsertions`, files grown past `codeReview.maxFileLines`, abstraction-smell filenames, dependency manifest changes, and missing test coverage. Treat those findings as real signals, not noise to bypass.
+The branch review also checks a step for more than `codeReview.maxInsertions` (default 1000) inserted code lines, abstraction-smell filenames (`*-factory`, `*-manager`, `*-wrapper`, `utils`), dependency manifest changes, and missing tests for large source changes.
 
-**Single-file size rule.** A code file that this step creates or grows past `codeReview.maxFileLines` (default 300 lines) gets a split finding. Files that were already over the limit before the step are not flagged. The review sub-agent (per-step for High-tier steps, otherwise the branch review) reads the file and decides:
+**Single-file size rule.** A code file that the branch creates or grows past `codeReview.maxFileLines` (default 300 lines) is checked for splitting. Files that were already over the limit before the task are not flagged. The branch review sub-agent reads the file and decides:
 
 - if it has a clear split boundary (a self-contained sub-component, hook, utility, type group, or constant table), splitting is a must-fix item
-- if it has no clear boundary, the file stays as is, and the review sub-agent states why in its result
+- if it has no clear boundary, the file stays as is, and the branch review sub-agent states why in its result
 
-This finding alone does not fail `vibe code-review`; the must-fix gate enforces it.
-
-The step line-count and single-file rules only count code. Tests (`*.test.*`, `*.spec.*`, `test/`, `tests/`, `__tests__/`) and docs (`*.md`, `*.mdx`, `*.mdc`, `doc/`, `docs/`, `spec/`, `specs/`) are left out of them, so a docs-only or test-heavy step is not flagged for size.
+The line-count and single-file rules only count code. Tests (`*.test.*`, `*.spec.*`, `test/`, `tests/`, `__tests__/`) and docs (`*.md`, `*.mdx`, `*.mdc`, `doc/`, `docs/`, `spec/`, `specs/`) are left out of them, so a docs-only or test-heavy step is not flagged for size.
 
 ### Reviewing against project conventions and current best practices
 
 Before you review (and before you fix findings), gather both kinds of standards:
 
-1. **Project conventions (authoritative).** `vibe context` collects them into the `Conventions` section of `context.md`: `.cursor/rules` files, `AGENTS.md`, lint tools (eslint/prettier/biome), `tsconfig` strict mode, and available package scripts. Read the actual rule files when they exist — project rules always win over generic advice.
-2. **Latest external standards (reference).** You MUST look up current documentation and patterns rather than relying on memory:
-   - use **context7** to fetch the latest docs for the libraries/frameworks involved
-   - use **WebSearch** for current design pattern / best practice guidance when the change involves a non-trivial design decision
+1. **Project conventions (authoritative).** Sub-agents get them from their `vibe brief`: `AGENTS.md` and the `.cursor/rules` files that apply to the step are included in full, the rest are listed for on-demand reading. Project rules always win over generic advice.
+2. **Latest external standards (reference).** Look them up only when the change uses a library API the repo does not use yet, or involves a non-trivial design decision:
+   - use **context7** to fetch the latest docs for that library
+   - use **WebSearch** for current design pattern / best practice guidance on that decision
    Then apply what you learned only where it does not conflict with project conventions, and only where it simplifies the code. Never introduce a pattern just because it is modern — that is itself over-engineering.
 
 ---
@@ -353,7 +381,33 @@ vibe review PROJ-123
 - **Ask the user** to resolve the remaining divergence and uncertainty
 - Rerun `vibe plan <JIRA_KEY> --from <file>` with the answers in `decisions`, then `vibe review <JIRA_KEY>` again
 
-**After this (when approved):** For each step, starting from step 1, the lead dispatches a coding sub-agent (`vibe code`), runs `vibe code-review` (plus a review sub-agent for High-tier steps), then runs `vibe commit`.
+**After this (when approved):** For each step, starting from step 1, the lead dispatches a coding sub-agent (`vibe code`), then runs `vibe commit`. After the last step, one branch review sub-agent reviews the whole branch.
+
+---
+
+### `vibe brief <JIRA_KEY> --role <role> [--step <N>] [--note <text>]`
+
+**Purpose:** Run by the lead before dispatching a coding or branch review sub-agent. Writes one brief the sub-agent reads instead of `vibe skill`, `vibe show`, `context.md`, and the rule files.
+
+**Usage:**
+```bash
+vibe brief PROJ-123 --role coding --step 2
+vibe brief PROJ-123 --role coding --step 2 --note "Fix the review finding in list.vue first"
+vibe brief PROJ-123 --role branch-review
+```
+
+**What the brief contains:**
+- the role card: what the sub-agent does, which commands it may run, and what it returns. The branch review role also gets the over-engineering and single-file split checklist
+- the issue summary and acceptance criteria
+- the step (or, for `branch-review`, every step and the exact diff range)
+- the plan's `decisions` and the lead's `--note` lines
+- project rules: `AGENTS.md`, every `alwaysApply: true` rule, and every rule whose `globs` match the step's `expectedFiles` (all steps' files for `branch-review`), in full. Other rules are listed by name and description only, to be opened on demand
+- lint tools, package manager, and links to `context.md`, Figma, and Confluence for details
+
+**Key behaviors:**
+- `--role` is `coding` (default) or `branch-review`; `coding` needs `--step`, otherwise it fails with `STEP_NOT_FOUND`
+- Saves `step-<N>-<role>-brief.md` or `branch-review-brief.md` under `reports/` and returns its `reportPath` and the applied rule files
+- Rerun it after `vibe scope`, `vibe plan --from`, or a review round, so the brief matches the current step
 
 ---
 
@@ -376,34 +430,24 @@ vibe code PROJ-123 --step 1
 
 ### `vibe code-review <JIRA_KEY> --step <N>`
 
-**Purpose:** Review the current diff for a step, score its risk, and decide whether it may be committed. This is the gate of the code → code-review → code loop.
+**Purpose:** Optional heuristic check of the current uncommitted diff for a step. Agents following the multi-agent roles do not run it; `vibe commit` does not require it. It is kept for humans and for `vibe done`.
 
 **What it does:**
 1. Reads the current changed files and their diff stats (insertions/deletions, including untracked files)
-2. Runs the scope check and heuristics over the diff, computing a `riskScore` (0–1)
+2. Runs the scope check and heuristics over the diff, computing a `riskScore` (0–1) compared against `codeReview.riskThreshold`
 3. Produces `findings` grouped by category: `over-engineering`, `convention`, `complexity`, `dependency`, `scope`
-4. Compares the score to `codeReview.riskThreshold`:
-   - `score <= threshold` → the step becomes `reviewed`; committing is unlocked
-   - `score > threshold` → the step stays un-committable; fix the findings and re-review
-5. Saves a `step-<N>-code-review.md` report and returns a recommended `nextAction`
-6. If `codeReview.maxIterations` is reached, the review is force-passed to avoid infinite loops (a signal is recorded)
+4. Saves a `step-<N>-code-review.md` report
 
 **Usage:**
 ```bash
 vibe code-review PROJ-123 --step 1
 ```
 
-**Agent behavior when not passed:**
-- The lead (or, for a High-tier step, the review sub-agent) reads the `findings` in `step-<N>-code-review.md`
-- The lead dispatches a new coding sub-agent to fix them in priority order: over-engineering first, then convention, complexity, dependency, scope
-- Consult project conventions (`.cursor/rules`, `AGENTS.md`, lint config) and look up current best practices with context7/WebSearch as needed
-- The lead reruns `vibe code-review <JIRA_KEY> --step <N>` until it passes; a High-tier step gets a new review sub-agent for the rerun
-
 ---
 
 ### `vibe commit <JIRA_KEY> --step <N>`
 
-**Purpose:** Run by the lead after the step passes its code review gate. Auto-stages the changed files, checks scope, and commits with the step's commit message.
+**Purpose:** Run by the lead after `vibe code` has passed for the step. Auto-stages the changed files, checks scope, and commits with the step's commit message.
 
 **Usage:**
 ```bash
@@ -411,7 +455,7 @@ vibe commit PROJ-123 --step 1
 ```
 
 **Key behaviors:**
-- Fails with `CODE_REVIEW_NOT_PASSED` if the step has not passed code review
+- Fails with `STEP_NOT_CHECKED` until `vibe code` has passed for the step
 - Fails with `DIFF_OUT_OF_SCOPE` if files fall outside the step scope. Add them with `vibe scope` when they belong to the step
 - Stages every changed file that git reports, including files under dot directories such as `.cursor/rules/`. Only the legacy `.vibe/` directory and gitignored files are skipped
 
@@ -427,7 +471,7 @@ Never repair a commit with `git commit --amend`, never pass `--no-verify`, and n
 
 ### `vibe done <JIRA_KEY> --step <N>`
 
-**Purpose:** Execute a plan step, code review it, and commit when the review passes. It chains `code` + `code-review` + `commit` into a single call. Agents following the multi-agent roles must not use it, because coding and code review run in separate sub-agents. Use it only when a human runs vibe-cli by hand.
+**Purpose:** Execute a plan step, code review it, and commit when the review passes. It chains `code` + `code-review` + `commit` into a single call. Agents following the multi-agent roles must not use it, because the agent workflow has no per-step review. Use it only when a human runs vibe-cli by hand.
 
 **What it does:**
 1. **Execute phase:** Reads the step's expectedFiles, generates an execution report with AI guidance, runs per-step verify commands
@@ -561,7 +605,7 @@ vibe fix PROJ-123 --message "restore lint" --file src/components/list.tsx
 **Key behaviors:**
 - Fails while any plan step is still uncommitted. Fix the problem inside that step instead
 - The new step uses the next step number and the commit message `fix(<JIRA_KEY>): <text>`
-- The task returns to `plan_approved`. Run the new step through `vibe code`, `vibe code-review`, and `vibe commit`, then `vibe verify` again
+- The task returns to `plan_approved`. Run the new step through `vibe code` and `vibe commit`, then resume the branch review or `vibe verify` that found the problem
 
 ---
 
@@ -617,33 +661,30 @@ Here is the complete workflow an AI agent should follow:
 
 Do not leave this loop until `vibe review` reports `approved: true`. Executing steps before approval fails with `PLAN_NOT_APPROVED`.
 
-### Phase 3: Implementation with code review loop (per step)
+### Phase 3: Implementation (per step: code, simple check, commit)
 
 For each step N in the plan (starting from 1):
 
 ```
-6. Coding sub-agent:  vibe skill → edit code for step N → vibe code <JIRA_KEY> --step N   # lints changed files only
-7. Lead:              vibe code-review <JIRA_KEY> --step N
-   High-tier step:    + review sub-agent: vibe skill → vibe code-review <JIRA_KEY> --step N   # no file edits
-   ├─ if NOT passed, or a High-tier review returned must-fix items:
-   │    → lead dispatches a new coding sub-agent with the findings (over-engineering first)
-   │    → rerun step 7; repeat until it passes
-   └─ if passed:
-8. Lead:              vibe commit <JIRA_KEY> --step N
-9. Lead:              git status --short   # must be empty; otherwise recover with vibe scope / vibe fix
+6. Lead:              vibe brief <JIRA_KEY> --role coding --step N
+   Coding sub-agent:  read brief → edit code for step N → vibe code <JIRA_KEY> --step N   # simple check: lints changed files
+   └─ on VERIFY_FAILED: the coding sub-agent fixes and reruns vibe code
+7. Lead:              vibe commit <JIRA_KEY> --step N   # no per-step review
+8. Lead:              git status --short   # must be empty; otherwise recover with vibe scope / vibe fix
 ```
 
 After the last step:
 
 ```
-10. Branch review sub-agent: git diff <baseBranch>...HEAD   # no file edits; returns must-fix items
-    └─ if any: lead vibe fix → coding sub-agent → lead code-review → lead commit → new branch review sub-agent
+9. Lead: vibe brief <JIRA_KEY> --role branch-review
+   Branch review sub-agent: read brief → git diff <range from brief>   # no file edits; returns must-fix items
+   └─ if any: lead vibe fix → coding sub-agent → lead commit → resume branch review sub-agent
 ```
 
 **Important agent behaviors during implementation:**
-- The coding sub-agent reads the plan's `expectedFiles` for the step to understand scope
-- Before reviewing/fixing, consult project conventions and look up current best practices (context7/WebSearch) — see the code review loop section
-- Do not leave the loop by committing around it; `vibe commit` enforces `CODE_REVIEW_NOT_PASSED`
+- The coding sub-agent reads the step's `expectedFiles` in its brief to understand scope
+- Before fixing branch review findings, consult the project rules in the brief; look up library docs (context7/WebSearch) only for APIs the repo does not use yet
+- Do not commit a step before its check passes; `vibe commit` enforces `STEP_NOT_CHECKED`
 - `vibe commit` auto-stages — do NOT run `git add` or `git commit` manually
 - If you need to refactor a file into a directory (e.g., `details.tsx` → `details/index.tsx`), the directory-level scope check will allow it
 - Commit messages in the plan are pre-formatted; if you change the plan, use prefixes: `feat`, `refactor`, `fix`, or `style`
@@ -651,9 +692,9 @@ After the last step:
 ### Phase 4: Verification & PR draft (stop before push)
 
 ```
-11. Verify sub-agent: vibe skill → vibe verify <JIRA_KEY>   # no file edits; report skipped package scripts
-    └─ if failed: lead vibe fix → coding sub-agent → lead code-review → lead commit → new verify sub-agent
-12. Lead:             vibe pr <JIRA_KEY>                    # Generate PR DRAFT only
+10. Verify sub-agent: vibe verify <JIRA_KEY>   # no file edits; report skipped package scripts
+    └─ if failed: lead vibe fix → coding sub-agent → lead commit → resume verify sub-agent
+11. Lead:             vibe pr <JIRA_KEY>                    # Generate PR DRAFT only
 ```
 
 **After the PR draft is generated, STOP.** Do not push the branch or create the PR. Present the draft to the user and wait for their explicit review/approval before performing any `git push` / PR creation.
@@ -690,15 +731,15 @@ The workspace config is `<state dir>/config.json`. Each task lives in `<state di
 ### Step Status Lifecycle
 
 ```
-pending → coded → reviewed → committed
-                ↑________|
-        (code review not passed: fix and re-review)
+pending → coded / verified → committed
+   ↑________↓
+ (step check failed: fix and rerun vibe code)
 ```
 
 - `pending`: Step not yet started
-- `coded`: Step executed (report generated) but not yet code reviewed
-- `verified`: Step executed and step verification passed
-- `reviewed`: Step passed code review; committing is unlocked
+- `coded`: `vibe code` ran and no check command applied (for example a docs-only step with a `{files}` lint); committing is unlocked
+- `verified`: `vibe code` ran and the step check passed; committing is unlocked
+- `reviewed`: The optional `vibe code-review` passed; committing is unlocked
 - `committed`: Changes committed to git
 - `failed`: Step failed (can be retried)
 
@@ -766,7 +807,8 @@ Vibe-cli config is stored in `<state dir>/config.json` (see [State Management](#
 
 **Code review settings (`codeReview`):**
 - `riskThreshold`: The diff passes when `riskScore <= threshold`. Lower it to be stricter about over-engineering.
-- `maxIterations`: Safety cap on the code → code-review loop. When reached, the review is force-passed.
+- `maxIterations`: Safety cap on repeated `vibe code-review` runs. When reached, the review is force-passed.
+- These settings drive the optional `vibe code-review`; the branch review sub-agent applies the same limits.
 - `maxInsertions`: Total inserted code lines above this is flagged as too large a step.
 - `maxFileLines`: A code file that this step creates or grows past this many lines must be split when it has a clear split boundary (see the single-file size rule above).
 - Tests and docs are not counted by `maxInsertions` or `maxFileLines`. The number of new files in a step is not limited.
@@ -785,11 +827,12 @@ Vibe-cli config is stored in `<state dir>/config.json` (see [State Management](#
 | `PLAN_INVALID` | The `vibe plan --from` file does not match the plan format | Fix the fields listed in the error and rerun |
 | `STEP_NOT_FOUND` | Step number not in plan | Check plan with `vibe show` |
 | `STEP_ALREADY_COMMITTED` | Step was already committed, or `vibe plan` ran after a commit | Move to the next step; add later work with `vibe fix` |
-| `STEPS_NOT_COMMITTED` | `vibe verify` or `vibe pr` ran with uncommitted steps | Finish each open step through code, code-review, commit |
+| `STEPS_NOT_COMMITTED` | `vibe verify` or `vibe pr` ran with uncommitted steps | Finish each open step through `vibe code` and `vibe commit` |
 | `TASK_NOT_VERIFIED` | `vibe pr` ran before the task reached `pr_ready` | Run `vibe verify` until it passes |
 | `DIFF_OUT_OF_SCOPE` | Changed files outside step scope | Ensure changes match expectedFiles directory |
 | `PLAN_NOT_APPROVED` | Tried to execute before the plan was approved | Run `vibe review`, resolve open questions, re-plan until approved |
-| `CODE_REVIEW_NOT_PASSED` | Tried to commit before the diff passed code review | Fix the findings in `step-<N>-code-review.md` (over-engineering first), then rerun `vibe code-review` |
+| `STEP_NOT_CHECKED` | Tried to commit a step before `vibe code` passed for it | Run `vibe code <JIRA_KEY> --step <N>` and fix until it passes |
+| `CODE_REVIEW_NOT_PASSED` | `vibe done` stopped because its code review did not pass | Fix the findings in `step-<N>-code-review.md`, then rerun `vibe done` |
 | `VERIFY_FAILED` | Verification commands failed | During a step, fix the code and rerun `vibe code`. After all steps are committed, add a fix step with `vibe fix` |
 | `STATE_CORRUPTED` | Internal state inconsistency | Check logs, may need `vibe clean` + restart |
 | `JIRA_FETCH_FAILED` | Cannot fetch Jira issue | Check Jira connectivity and permissions |
@@ -802,11 +845,11 @@ Run `vibe skill` before anything else. The printed guide is the prerequisite for
 
 1. **Never skip the plan → review loop** — run `vibe review` after `vibe plan`, and keep looping (plan → review → plan) until it reports `approved: true`. Execution is blocked before approval.
 2. **Ask the user on divergence/uncertainty** — when review surfaces open questions (or you hit any ambiguous/divergent decision), pause and ask the user; fold answers into the next `vibe plan`. Don't guess on decisions that change the plan.
-3. **Never skip the code → code-review loop** — every step must pass `vibe code-review` before it can be committed. Keep fixing and re-reviewing until it passes.
+3. **Never skip the step check or the branch review** — every step must pass `vibe code` before it can be committed, and the whole branch must pass the branch review (no must-fix items) before `vibe verify`.
 4. **Default to less code** — YAGNI. No speculative abstraction, no unused extension points, no new dependency without justification. Over-engineering is the failure mode this loop exists to catch.
 5. **Review against project conventions first, external patterns second** — read `.cursor/rules`/`AGENTS.md`/lint config; use context7 for latest library docs and WebSearch for current design patterns, but never let a "modern pattern" add complexity the task doesn't need.
 6. **Never auto-push or auto-create PRs** — `vibe pr` produces a draft only. Stop there and let the user review; `git push` and PR creation are manual, user-triggered actions.
-7. **Split coding and review across agents** — the lead dispatches a coding sub-agent (`vibe code`) for every step, runs `vibe code-review` itself (adding a review sub-agent for High-tier steps), commits with `vibe commit`, dispatches one branch review sub-agent after the last step, and a verify sub-agent for `vibe verify`. Do not use `vibe done`
+7. **Split coding and review across agents, one agent per role** — the lead uses one coding sub-agent (`vibe code`) for every step and resumes it instead of starting new ones, commits each step with `vibe commit` once its simple check passes, with no review during coding, dispatches one branch review sub-agent after the last step, and a verify sub-agent for `vibe verify`. Do not use `vibe done`
 8. **Read the plan before implementing** — use `vibe show` to understand expectedFiles and commit messages
 9. **One step at a time** — implement, review, commit, then move to the next step
 10. **Don't manually `git add` or `git commit`** — vibe-cli handles this. Check `git status --short` is empty after each `vibe commit`, and recover leftover files with `vibe scope` or `vibe fix`, never with `--amend` or `--no-verify`
@@ -843,24 +886,26 @@ vibe review PROJ-123
 vibe show PROJ-123
 
 # 6. Step 1 (e.g., add API types)
-#    Coding sub-agent: [make code changes in the codebase]
+#    Lead: write the coding brief, pass its reportPath to the coding sub-agent
+vibe brief PROJ-123 --role coding --step 1
+#    Coding sub-agent: [read the brief, make code changes in the codebase]
 vibe code PROJ-123 --step 1
-#    Lead (High-tier steps also get a review sub-agent):
-vibe code-review PROJ-123 --step 1
-#    If NOT passed: lead dispatches a new coding sub-agent with the findings,
-#    then reruns vibe code-review; repeat until passed
-#    Lead:
+#    Lead (no review during coding):
 vibe commit PROJ-123 --step 1
 
-# 7. Steps 2..N repeat the same coding sub-agent → lead code-review → lead commit cycle
-#    After the last step: one branch review sub-agent reads git diff main...HEAD
+# 7. Steps 2..N repeat the same coding sub-agent → lead commit cycle
+#    After the last step: one branch review over the whole branch
+vibe brief PROJ-123 --role branch-review
+#    Branch review sub-agent returns must-fix items; each round of fixes:
+#      vibe fix PROJ-123 --message "split list view" --file src/views/list.vue
+#      coding sub-agent → lead: vibe commit → resume branch review sub-agent
 
 # 8. Verify sub-agent: verify all changes
 vibe verify PROJ-123
 #    If it fails, lead appends a fix step and runs it through the coding phase:
 #      vibe fix PROJ-123 --message "restore lint" --file src/components/list.tsx
-#      coding sub-agent → lead: vibe code-review / vibe commit PROJ-123 --step 4
-#      new verify sub-agent: vibe verify PROJ-123
+#      coding sub-agent → lead: vibe commit PROJ-123 --step 4
+#      resumed verify sub-agent: vibe verify PROJ-123
 
 # 9. Lead: generate PR DRAFT only — then STOP and wait for user review.
 #     Do NOT push or open a PR automatically.

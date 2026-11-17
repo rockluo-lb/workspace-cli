@@ -36,7 +36,8 @@ export type AppErrorCode =
 	| 'TARGET_NOT_CONFIRMED'
 	| 'STEPS_NOT_COMMITTED'
 	| 'TASK_NOT_VERIFIED'
-	| 'PLAN_INVALID';
+	| 'PLAN_INVALID'
+	| 'STEP_NOT_CHECKED';
 
 export interface ExternalLink {
 	type: LinkType;
@@ -330,6 +331,22 @@ export interface ScopeStepResult {
 	expectedFiles: string[];
 }
 
+export type BriefRole = 'coding' | 'branch-review';
+
+export interface BriefOptions {
+	role: BriefRole;
+	stepId?: number;
+	notes?: string[];
+}
+
+export interface BriefResult {
+	jiraKey: string;
+	role: BriefRole;
+	stepId?: number;
+	reportPath: string;
+	appliedRules: string[];
+}
+
 export interface FixStepResult {
 	jiraKey: string;
 	stepId: number;
@@ -604,6 +621,7 @@ export interface WorkflowOrchestrator {
 	addStepScope(jiraKey: string, stepId: number, files: string[]): Promise<ScopeStepResult>;
 	addFixStep(jiraKey: string, message: string, files: string[]): Promise<FixStepResult>;
 	adoptTask(jiraKey: string): Promise<AdoptTaskResult>;
+	buildBrief(jiraKey: string, options: BriefOptions): Promise<BriefResult>;
 }
 
 export interface WorkflowOrchestratorDeps {

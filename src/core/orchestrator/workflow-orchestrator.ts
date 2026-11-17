@@ -4,6 +4,8 @@ import type {
 	CodeReviewResult,
 	AbortTaskResult,
 	AdoptTaskResult,
+	BriefOptions,
+	BriefResult,
 	CommitStepResult,
 	ContextResult,
 	ExecuteStepResult,
@@ -37,6 +39,8 @@ import {
 	renderCommitMessage,
 } from '../shared/validation.js';
 import { assertStepTransition, assertTaskTransition } from '../state/state-machine.js';
+import { loadProjectRules } from '../repo/project-rules.js';
+import { renderBrief } from '../templates/brief-template.js';
 import { renderContextMarkdown } from '../templates/context-template.js';
 import { renderPlanMarkdown } from '../templates/plan-template.js';
 import {
@@ -481,8 +485,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			`step-${stepId}-report.md`,
 			renderStepReport(step, [result.summary, ...result.warnings], result.verifyResults)
 		);
-		const coding = progress.status === 'coding' ? progress : updateTaskStatus(progress, 'coding');
-		const nextProgress = updateTaskStatus(coding, 'code_review');
+		const nextProgress = progress.status === 'coding' ? progress : updateTaskStatus(progress, 'coding');
 		nextProgress.currentStep = stepId;
 		nextProgress.codeReviewIteration = 0;
 		await this.deps.taskStore.saveProgress(jiraKey, nextProgress);
@@ -591,10 +594,10 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		if (step.status === 'committed') {
 			throw new AppError('STEP_ALREADY_COMMITTED', `Step ${stepId} is already committed.`);
 		}
-		if (step.status !== 'reviewed') {
+		if (step.status === 'pending' || step.status === 'failed') {
 			throw new AppError(
-				'CODE_REVIEW_NOT_PASSED',
-				`Step ${stepId} has not passed code review. Run \`vibe code-review ${jiraKey} --step ${stepId}\` and resolve the findings before committing.`
+				'STEP_NOT_CHECKED',
+				`Step ${stepId} has not passed its step check. Run \`vibe code ${jiraKey} --step ${stepId}\` until it passes before committing.`
 			);
 		}
 
@@ -742,11 +745,11 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 				case 'plan_approved':
 					return `vibe code ${jiraKey} --step ${pendingSteps[0] ?? 1}`;
 				case 'coding':
-					if (progress.currentStep && currentStepStatus === 'reviewed') {
+					if (
+						progress.currentStep &&
+						(currentStepStatus === 'coded' || currentStepStatus === 'verified' || currentStepStatus === 'reviewed')
+					) {
 						return `vibe commit ${jiraKey} --step ${progress.currentStep}`;
-					}
-					if (progress.currentStep && currentStepStatus && currentStepStatus !== 'committed') {
-						return `vibe code-review ${jiraKey} --step ${progress.currentStep}`;
 					}
 					return pendingSteps.length > 0
 						? `vibe code ${jiraKey} --step ${pendingSteps[0]}`
@@ -960,6 +963,73 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			status: progress.status,
 			commits: progress.commits,
 			nextAction: `vibe verify ${jiraKey}`,
+		};
+	}
+
+	async buildBrief(jiraKey: string, options: BriefOptions): Promise<BriefResult> {
+		const issue = requireValue(
+			await this.deps.taskStore.loadIssue(jiraKey),
+			'JIRA_FETCH_FAILED',
+			`Issue not found for ${jiraKey}`
+		);
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
+		const repoContext = requireValue(
+			await this.deps.taskStore.loadRepoContext(jiraKey),
+			'STATE_CORRUPTED',
+			`Repo context not found for ${jiraKey}`
+		);
+		const progress = requireValue(
+			await this.deps.taskStore.loadProgress(jiraKey),
+			'STATE_CORRUPTED',
+			`Progress not found for ${jiraKey}`
+		);
+		const links = (await this.deps.taskStore.loadLinks(jiraKey)) ?? [];
+
+		let step: PlanStep | undefined;
+		if (options.role !== 'branch-review') {
+			step = plan.steps.find((item) => item.id === options.stepId);
+			if (!step) {
+				throw new AppError(
+					'STEP_NOT_FOUND',
+					`The ${options.role} brief needs an existing step; got --step ${options.stepId ?? 'none'} for ${jiraKey}.`
+				);
+			}
+		}
+
+		const files = step ? step.expectedFiles : plan.steps.flatMap((item) => item.expectedFiles);
+		const rules = await loadProjectRules(this.deps.rootDir, files);
+		const firstCommit = progress.commits[0]?.sha;
+		const diffRange = firstCommit ? `${firstCommit}^..HEAD` : `${this.deps.config.baseBranch}...HEAD`;
+		const name = step ? `step-${step.id}-${options.role}-brief.md` : `${options.role}-brief.md`;
+		const contextPath = path.join(this.deps.stateRoot, 'tasks', jiraKey, 'reports', 'context.md');
+		const reportPath = await this.deps.taskStore.writeReport(
+			jiraKey,
+			name,
+			renderBrief({
+				role: options.role,
+				issue,
+				plan,
+				step,
+				links,
+				repoContext,
+				rules,
+				notes: options.notes ?? [],
+				contextPath,
+				diffRange,
+			})
+		);
+		await this.deps.taskStore.appendLog(jiraKey, 'brief.log', `Built ${name}`);
+
+		return {
+			jiraKey,
+			role: options.role,
+			stepId: step?.id,
+			reportPath,
+			appliedRules: [...(rules.agentsMd ? ['AGENTS.md'] : []), ...rules.applied.map((rule) => rule.file)],
 		};
 	}
 }

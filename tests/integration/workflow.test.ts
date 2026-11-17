@@ -49,13 +49,10 @@ describe('workflow integration', () => {
 
 		await fs.appendFile(path.join(rootDir, 'README.md'), 'Step 1 change\n', 'utf8');
 
-		await expect(app.orchestrator.commitStep('CRMCN-1234', 1)).rejects.toThrow(/not passed code review/);
-
-		const codeReview = await app.orchestrator.reviewCode('CRMCN-1234', 1);
-		expect(codeReview.review.passed).toBe(true);
-		expect(await fs.pathExists(path.join(stateRoot, 'tasks/CRMCN-1234/reports/step-1-code-review.md'))).toBe(
-			true
-		);
+		await expect(app.orchestrator.commitStep('CRMCN-1234', 2)).rejects.toMatchObject({
+			code: 'STEP_NOT_CHECKED',
+		});
+		expect((await app.orchestrator.resumeTask('CRMCN-1234')).nextAction).toBe('vibe commit CRMCN-1234 --step 1');
 
 		const commit = await app.orchestrator.commitStep('CRMCN-1234', 1);
 		expect(commit.message).toMatch(/^feat\(CRMCN-1234\): /);
@@ -150,6 +147,54 @@ describe('workflow integration', () => {
 
 		const regenerated = await app.orchestrator.generatePlan('CRMCN-77');
 		expect(regenerated.plan.decisions).toEqual(decisions);
+	});
+
+	it('writes role briefs with the step, decisions, notes, and matched rules', async () => {
+		const rootDir = await createTempDir('vibe-workflow-brief-');
+		await useTempStateRoot();
+		await initGitRepo(rootDir);
+		const app = await createApp(rootDir);
+		await app.orchestrator.startTask('CRMCN-55');
+		await app.orchestrator.generatePlan('CRMCN-55', {
+			draft: {
+				decisions: [{ question: 'Keep pagination?', answer: 'Yes' }],
+				steps: [
+					{ title: 'Edit list view', expectedFiles: ['src/views/list.vue'] },
+					{ title: 'Add api', expectedFiles: ['src/api/list.ts'] },
+				],
+			},
+		});
+		const rulesDir = path.join(rootDir, '.cursor', 'rules');
+		await fs.ensureDir(rulesDir);
+		await fs.writeFile(
+			path.join(rulesDir, 'tailwind.mdc'),
+			"---\ndescription: Tailwind\nglobs: ['**/*.vue']\n---\n\nUse design tokens.\n",
+			'utf8'
+		);
+
+		const coding = await app.orchestrator.buildBrief('CRMCN-55', {
+			role: 'coding',
+			stepId: 1,
+			notes: ['Match the TMGM portal first'],
+		});
+		const content = await fs.readFile(coding.reportPath, 'utf8');
+		expect(path.basename(coding.reportPath)).toBe('step-1-coding-brief.md');
+		expect(coding.appliedRules).toEqual(['.cursor/rules/tailwind.mdc']);
+		expect(content).toContain('vibe code CRMCN-55 --step 1');
+		expect(content).toContain('Use design tokens.');
+		expect(content).toContain('Keep pagination?');
+		expect(content).toContain('Match the TMGM portal first');
+		expect(content).not.toContain('Step 2: Add api');
+
+		const branch = await app.orchestrator.buildBrief('CRMCN-55', { role: 'branch-review' });
+		const branchContent = await fs.readFile(branch.reportPath, 'utf8');
+		expect(path.basename(branch.reportPath)).toBe('branch-review-brief.md');
+		expect(branchContent).toContain('git diff main...HEAD');
+		expect(branchContent).toContain('Step 2: Add api');
+
+		await expect(app.orchestrator.buildBrief('CRMCN-55', { role: 'coding' })).rejects.toMatchObject({
+			code: 'STEP_NOT_FOUND',
+		});
 	});
 
 	it('stops a step when verification fails and can extend scope before commit', async () => {

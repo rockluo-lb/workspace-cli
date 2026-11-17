@@ -4,6 +4,7 @@ import process from 'node:process';
 import { AppError, toAppError } from '../core/shared/errors.js';
 import { registerAbortCommand } from './commands/abort.js';
 import { registerAdoptCommand } from './commands/adopt.js';
+import { registerBriefCommand } from './commands/brief.js';
 import { registerCleanCommand } from './commands/clean.js';
 import { registerCodeReviewCommand } from './commands/code-review.js';
 import { registerCodeCommand } from './commands/code.js';
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
 	registerPlanCommand(program, getApp);
 	registerReviewCommand(program, getApp);
 	registerShowCommand(program, getApp);
+	registerBriefCommand(program, getApp);
 	registerCodeCommand(program, getApp);
 	registerCodeReviewCommand(program, getApp);
 	registerCommitCommand(program, getApp);
