@@ -1,43 +1,36 @@
 # Vibe Flow CLI
 
-Jira-driven, step-based vibe coding workflow CLI.
+Jira-driven, step-based vibe coding workflow CLI. Run commands from the repository you want to change. Task state is stored under `~/.vibe/`.
 
-## Commands
+## Usage
 
-- `vibe start <JIRA_KEY>`
-- `vibe context <JIRA_KEY>`
-- `vibe plan <JIRA_KEY>`
-- `vibe show <JIRA_KEY>`
-- `vibe code <JIRA_KEY> --step <N> [--dry-run]`
-- `vibe commit <JIRA_KEY> --step <N>`
-- `vibe verify <JIRA_KEY>`
-- `vibe pr <JIRA_KEY>`
-- `vibe resume <JIRA_KEY>`
-- `vibe abort <JIRA_KEY>`
+Node.js `>= 22`. Build, then register `vibe` globally:
 
-## Notes
-
-- Local git operations stay local.
-- Jira / Confluence / Figma / GitHub are abstracted behind provider interfaces.
-- Jira now supports `auto`, `atlassian-mcp`, and `atlassian-plugin`; `auto` prefers MCP and falls back to plugin.
-- Dynamic project policy lives in the workspace state directory config, not in the business repo.
-- Task state is stored in a user-level workspace state directory, not under the current project root.
-
-## Config Examples
-
-```json
-{
-  "github": {
-    "repository": "example-org/example-repo"
-  },
-  "pr": {
-    "aiDisclosure": "> This PR draft was generated with vibe-cli AI assistance. Please review all changes carefully before merging."
-  }
-}
+```bash
+pnpm install
+pnpm build
+pnpm link --global
 ```
 
-By default the user state directory is `~/.vibe/`. Each repository lives under `~/.vibe/workspaces/...`, and shared conventions live in `~/.vibe/lessons.json`. A lesson is either global (applies in every repo) or scoped to the one workspace it came from; only lessons visible to the current repo are injected into its briefs.
+If the shell cannot find `vibe`, run `pnpm setup`, reopen the shell, and link again. Source changes only need another `pnpm build`. Remove the global command with `pnpm unlink --global`.
 
-If `~/.vibe` does not exist yet and an older platform directory does, vibe keeps using that older directory until you create `~/.vibe` or move the old one there.
+Without a global install:
 
-You can override the base directory with `VIBE_STATE_ROOT`.
+```bash
+pnpm dev -- start PROJ-123
+```
+
+In the target repository:
+
+```bash
+vibe start PROJ-123
+vibe context PROJ-123
+vibe plan PROJ-123
+vibe review PROJ-123
+vibe code PROJ-123 --step 1
+vibe commit PROJ-123 --step 1
+vibe verify PROJ-123
+vibe pr PROJ-123
+```
+
+Other commands: `skill`, `adopt`, `show`, `brief`, `handoff`, `scope`, `code-review`, `done`, `fix`, `learn`, `memory`, `resume`, `abort`, `clean`. Run `vibe --help` for options.
