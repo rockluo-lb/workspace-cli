@@ -36,7 +36,7 @@ Jira-driven, step-based vibe coding workflow CLI.
 }
 ```
 
-By default the user state directory is `~/.vibe/`. Each repository lives under `~/.vibe/workspaces/...`, and shared conventions live in `~/.vibe/lessons.json`.
+By default the user state directory is `~/.vibe/`. Each repository lives under `~/.vibe/workspaces/...`, and shared conventions live in `~/.vibe/lessons.json`. A lesson is either global (applies in every repo) or scoped to the one workspace it came from; only lessons visible to the current repo are injected into its briefs.
 
 If `~/.vibe` does not exist yet and an older platform directory does, vibe keeps using that older directory until you create `~/.vibe` or move the old one there.
 

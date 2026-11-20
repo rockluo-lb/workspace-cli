@@ -360,6 +360,8 @@ export interface LessonRecord {
 	kind: LessonKind;
 	text: string;
 	status: LessonStatus;
+	/** 'global' applies in every repo; any other value is a workspace id that limits the lesson to one repo. */
+	scope: string;
 	evidence: LessonEvidence[];
 }
 

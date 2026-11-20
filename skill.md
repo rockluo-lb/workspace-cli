@@ -408,7 +408,7 @@ vibe brief PROJ-123 --role branch-review
 **Key behaviors:**
 - `--role` is `coding` (default) or `branch-review`; `coding` needs `--step`, otherwise it fails with `STEP_NOT_FOUND`
 - Saves `step-<N>-<role>-brief.md` or `branch-review-brief.md` under `reports/` and returns its `reportPath` and the applied rule files
-- Includes this task's handoff notes and up to 8 approved shared conventions. Pending lessons are left out
+- Includes this task's handoff notes and up to 8 approved lessons visible to this repo (global conventions plus this workspace's lessons). Pending lessons are left out
 
 ---
 
@@ -428,7 +428,7 @@ Fails with `TASK_NOT_VERIFIED` before that. A repeated run merges evidence into 
 
 ### `vibe memory`
 
-Lists every lesson. `vibe memory approve --id <id>` makes it a shared convention for later briefs in every repo. `vibe memory reject --id <id>` keeps it out. A decision recorded on the current task, and a project rule, win when they conflict with a shared convention.
+Lists every lesson with its scope. Task decisions are scoped `global` and, once approved, apply to later briefs in every repo; handoff-derived lessons are scoped to the workspace they came from and only appear in that repo's briefs. `vibe memory approve --id <id>` approves a lesson; `vibe memory reject --id <id>` keeps it out. A decision recorded on the current task, and a project rule, win when they conflict with a shared convention.
 
 Rerun `vibe brief` after `vibe scope`, `vibe plan --from`, `vibe handoff`, or an approved lesson, so the brief matches the current step.
 
@@ -722,7 +722,7 @@ After the last step:
 
 **After the PR draft is generated, STOP.** Do not push the branch or create the PR. Present the draft to the user and wait for their explicit review/approval before performing any `git push` / PR creation.
 
-When the task is `pr_ready`, the lead may run `vibe learn <JIRA_KEY>` once. It suggests shared conventions from the plan decisions, committed files, and handoff notes, and leaves them pending in `~/.vibe/lessons.json`. Do not run it earlier, and do not approve lessons inside the coding loop. The user reviews them with `vibe memory`, then `vibe memory approve --id <id>` or `vibe memory reject --id <id>`. Approved lessons become conventions for every later brief, in every repo.
+When the task is `pr_ready`, the lead may run `vibe learn <JIRA_KEY>` once. It suggests lessons from the plan decisions (global scope) and handoff notes (workspace scope), and leaves them pending in `~/.vibe/lessons.json`. It does not propose committed-file lists as lessons. Do not run it earlier, and do not approve lessons inside the coding loop. The user reviews them with `vibe memory`, then `vibe memory approve --id <id>` or `vibe memory reject --id <id>`. Approved lessons become conventions for later briefs in their scope: global lessons in every repo, workspace lessons only in the repo they came from.
 
 ---
 

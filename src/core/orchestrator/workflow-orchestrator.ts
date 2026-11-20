@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { resolveStateBaseDir } from '../shared/state-paths.js';
+import { resolveStateBaseDir, workspaceId } from '../shared/state-paths.js';
 import { AppError } from '../shared/errors.js';
 import type {
 	CodeReviewResult,
@@ -1020,7 +1020,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		const name = step ? `step-${step.id}-${options.role}-brief.md` : `${options.role}-brief.md`;
 		const contextPath = path.join(this.deps.stateRoot, 'tasks', jiraKey, 'reports', 'context.md');
 		const handoffLog = (await this.deps.taskStore.readLog(jiraKey, 'handoff.md')) ?? '';
-		const lessons = approvedForBrief(await loadLessons(resolveStateBaseDir()));
+		const lessons = approvedForBrief(await loadLessons(resolveStateBaseDir()), workspaceId(this.deps.rootDir));
 		const reportPath = await this.deps.taskStore.writeReport(
 			jiraKey,
 			name,
@@ -1088,7 +1088,7 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		const merged = mergeLessons(
 			await loadLessons(resolveStateBaseDir()),
 			jiraKey,
-			candidatesFromTask(jiraKey, plan, handoffLog)
+			candidatesFromTask(jiraKey, plan, handoffLog, workspaceId(this.deps.rootDir))
 		);
 		await saveLessons(resolveStateBaseDir(), merged.lessons);
 		await this.deps.taskStore.appendLog(

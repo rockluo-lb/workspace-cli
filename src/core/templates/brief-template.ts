@@ -140,7 +140,7 @@ ${handoff || '- _none yet_'}
 
 ## Shared conventions
 
-Approved lessons from finished tasks. They apply in every repo. Follow them. A decision recorded for this task still wins when it conflicts.
+Approved lessons from finished tasks. Global conventions apply in every repo; workspace-scoped lessons apply only here. Follow them. A decision recorded for this task still wins when it conflicts.
 
 ${lessons.map((lesson) => `- ${lesson}`).join('\n') || '- _none_'}
 

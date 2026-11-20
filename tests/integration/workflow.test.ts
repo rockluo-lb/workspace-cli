@@ -244,6 +244,7 @@ describe('workflow integration', () => {
 		expect(learned.created).toBeGreaterThan(0);
 		const decision = learned.pending.find((lesson) => lesson.text.includes('Keep pagination?'));
 		expect(decision?.status).toBe('pending');
+		expect(decision?.scope).toBe('global');
 		expect(await fs.pathExists(path.join(stateBaseDir, 'lessons.json'))).toBe(true);
 		expect(await fs.pathExists(path.join(stateRoot, 'lessons.json'))).toBe(false);
 		expect(await fs.pathExists(path.join(rootDir, 'lessons.json'))).toBe(false);
@@ -257,6 +258,24 @@ describe('workflow integration', () => {
 			'utf8'
 		);
 		expect(after).toContain('Keep pagination? → Yes');
+
+		// a lesson approved in a different workspace must not leak into this brief
+		const lessonsFile = path.join(stateBaseDir, 'lessons.json');
+		const lessonsData = await fs.readJson(lessonsFile);
+		lessonsData.lessons.push({
+			id: 'other-workspace-lesson',
+			kind: 'decision',
+			text: 'OTHER_WORKSPACE_ONLY_RULE',
+			status: 'approved',
+			scope: 'some-other-workspace',
+			evidence: [],
+		});
+		await fs.writeJson(lessonsFile, lessonsData, { spaces: 2 });
+		const scopedBrief = await fs.readFile(
+			(await app.orchestrator.buildBrief('CRMCN-56', { role: 'coding', stepId: 1 })).reportPath,
+			'utf8'
+		);
+		expect(scopedBrief).not.toContain('OTHER_WORKSPACE_ONLY_RULE');
 
 		const repeated = await app.orchestrator.learnTask('CRMCN-56');
 		expect(repeated.created).toBe(0);

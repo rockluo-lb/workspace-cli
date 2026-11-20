@@ -42,9 +42,13 @@ export function resolveStateBaseDir(): string {
 	return chooseStateBaseDir(preferred, legacy, fs.existsSync(preferred), fs.existsSync(legacy));
 }
 
+export function workspaceId(rootDir: string): string {
+	return createHash('sha1').update(path.resolve(rootDir)).digest('hex').slice(0, 12);
+}
+
 export function resolveWorkspaceStateDir(rootDir: string, baseDir = resolveStateBaseDir()): string {
 	const resolvedRootDir = path.resolve(rootDir);
 	const workspaceName = sanitizeWorkspaceName(path.basename(resolvedRootDir)) || 'workspace';
-	const workspaceHash = createHash('sha1').update(resolvedRootDir).digest('hex').slice(0, 12);
+	const workspaceHash = workspaceId(resolvedRootDir);
 	return path.join(baseDir, 'workspaces', `${workspaceName}-${workspaceHash}`);
 }
