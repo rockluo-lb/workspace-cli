@@ -80,6 +80,14 @@ export class FileTaskStore implements TaskStore {
 		return filePath;
 	}
 
+	async readLog(jiraKey: string, name: string): Promise<string | null> {
+		const filePath = path.join(this.taskDir(jiraKey), 'logs', name);
+		if (!(await fs.pathExists(filePath))) {
+			return null;
+		}
+		return fs.readFile(filePath, 'utf8');
+	}
+
 	async writeTaskFile(jiraKey: string, name: string, content: string): Promise<string> {
 		await this.ensureTaskDirs(jiraKey);
 		const filePath = path.join(this.taskDir(jiraKey), name);

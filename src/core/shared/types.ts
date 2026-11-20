@@ -347,6 +347,35 @@ export interface BriefResult {
 	appliedRules: string[];
 }
 
+export type LessonKind = 'decision' | 'review' | 'files';
+export type LessonStatus = 'pending' | 'approved' | 'rejected';
+
+export interface LessonEvidence {
+	jiraKey: string;
+	source: string;
+}
+
+export interface LessonRecord {
+	id: string;
+	kind: LessonKind;
+	text: string;
+	status: LessonStatus;
+	evidence: LessonEvidence[];
+}
+
+export interface HandoffResult {
+	jiraKey: string;
+	stepId: number;
+	logPath: string;
+}
+
+export interface LearnResult {
+	jiraKey: string;
+	created: number;
+	merged: number;
+	pending: LessonRecord[];
+}
+
 export interface FixStepResult {
 	jiraKey: string;
 	stepId: number;
@@ -603,6 +632,7 @@ export interface TaskStore {
 	writeTaskFile(jiraKey: string, name: string, content: string): Promise<string>;
 	writeReport(jiraKey: string, name: string, content: string): Promise<string>;
 	appendLog(jiraKey: string, name: string, line: string): Promise<string>;
+	readLog(jiraKey: string, name: string): Promise<string | null>;
 	clearStateDir(): Promise<boolean>;
 }
 
@@ -622,6 +652,10 @@ export interface WorkflowOrchestrator {
 	addFixStep(jiraKey: string, message: string, files: string[]): Promise<FixStepResult>;
 	adoptTask(jiraKey: string): Promise<AdoptTaskResult>;
 	buildBrief(jiraKey: string, options: BriefOptions): Promise<BriefResult>;
+	recordHandoff(jiraKey: string, stepId: number, text: string): Promise<HandoffResult>;
+	learnTask(jiraKey: string): Promise<LearnResult>;
+	listLessons(): Promise<LessonRecord[]>;
+	setLessonStatus(id: string, status: 'approved' | 'rejected'): Promise<LessonRecord>;
 }
 
 export interface WorkflowOrchestratorDeps {

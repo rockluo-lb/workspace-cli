@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { resolveStateBaseDir } from '../shared/state-paths.js';
 import { AppError } from '../shared/errors.js';
 import type {
 	CodeReviewResult,
@@ -6,6 +7,9 @@ import type {
 	AdoptTaskResult,
 	BriefOptions,
 	BriefResult,
+	HandoffResult,
+	LearnResult,
+	LessonRecord,
 	CommitStepResult,
 	ContextResult,
 	ExecuteStepResult,
@@ -39,6 +43,15 @@ import {
 	renderCommitMessage,
 } from '../shared/validation.js';
 import { assertStepTransition, assertTaskTransition } from '../state/state-machine.js';
+import {
+	approvedForBrief,
+	candidatesFromTask,
+	latestHandoffByStep,
+	loadLessons,
+	mergeLessons,
+	renderHandoff,
+	saveLessons,
+} from '../memory/lessons.js';
 import { loadProjectRules } from '../repo/project-rules.js';
 import { renderBrief } from '../templates/brief-template.js';
 import { renderContextMarkdown } from '../templates/context-template.js';
@@ -1006,6 +1019,8 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 		const diffRange = firstCommit ? `${firstCommit}^..HEAD` : `${this.deps.config.baseBranch}...HEAD`;
 		const name = step ? `step-${step.id}-${options.role}-brief.md` : `${options.role}-brief.md`;
 		const contextPath = path.join(this.deps.stateRoot, 'tasks', jiraKey, 'reports', 'context.md');
+		const handoffLog = (await this.deps.taskStore.readLog(jiraKey, 'handoff.md')) ?? '';
+		const lessons = approvedForBrief(await loadLessons(resolveStateBaseDir()));
 		const reportPath = await this.deps.taskStore.writeReport(
 			jiraKey,
 			name,
@@ -1018,6 +1033,8 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 				repoContext,
 				rules,
 				notes: options.notes ?? [],
+				handoff: renderHandoff(latestHandoffByStep(handoffLog)),
+				lessons: lessons.map((lesson) => lesson.text),
 				contextPath,
 				diffRange,
 			})
@@ -1031,5 +1048,74 @@ export class DefaultWorkflowOrchestrator implements WorkflowOrchestrator {
 			reportPath,
 			appliedRules: [...(rules.agentsMd ? ['AGENTS.md'] : []), ...rules.applied.map((rule) => rule.file)],
 		};
+	}
+
+	async recordHandoff(jiraKey: string, stepId: number, text: string): Promise<HandoffResult> {
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
+		if (!plan.steps.some((step) => step.id === stepId)) {
+			throw new AppError('STEP_NOT_FOUND', `Step ${stepId} not found for ${jiraKey}`);
+		}
+		const body = text.trim();
+		if (body.length === 0) {
+			throw new AppError('STATE_CORRUPTED', 'Handoff text is empty.');
+		}
+		const logPath = await this.deps.taskStore.appendLog(jiraKey, 'handoff.md', `## step ${stepId}\n${body}\n`);
+		return { jiraKey, stepId, logPath };
+	}
+
+	async learnTask(jiraKey: string): Promise<LearnResult> {
+		const plan = requireValue(
+			await this.deps.taskStore.loadPlan(jiraKey),
+			'PLAN_NOT_FOUND',
+			`Plan not found for ${jiraKey}`
+		);
+		const progress = requireValue(
+			await this.deps.taskStore.loadProgress(jiraKey),
+			'STATE_CORRUPTED',
+			`Progress not found for ${jiraKey}`
+		);
+		if (progress.status !== 'pr_ready') {
+			throw new AppError(
+				'TASK_NOT_VERIFIED',
+				`Task ${jiraKey} is ${progress.status}. Run \`vibe learn\` only after \`vibe verify\` has passed.`
+			);
+		}
+		const handoffLog = (await this.deps.taskStore.readLog(jiraKey, 'handoff.md')) ?? '';
+		const merged = mergeLessons(
+			await loadLessons(resolveStateBaseDir()),
+			jiraKey,
+			candidatesFromTask(jiraKey, plan, handoffLog)
+		);
+		await saveLessons(resolveStateBaseDir(), merged.lessons);
+		await this.deps.taskStore.appendLog(
+			jiraKey,
+			'learn.log',
+			`created=${merged.created} merged=${merged.merged}`
+		);
+		return {
+			jiraKey,
+			created: merged.created,
+			merged: merged.merged,
+			pending: merged.lessons.filter((lesson) => lesson.status === 'pending'),
+		};
+	}
+
+	async listLessons(): Promise<LessonRecord[]> {
+		return loadLessons(resolveStateBaseDir());
+	}
+
+	async setLessonStatus(id: string, status: 'approved' | 'rejected'): Promise<LessonRecord> {
+		const lessons = await loadLessons(resolveStateBaseDir());
+		const lesson = lessons.find((item) => item.id === id);
+		if (!lesson) {
+			throw new AppError('STATE_CORRUPTED', `No lesson with id ${id}.`);
+		}
+		lesson.status = status;
+		await saveLessons(resolveStateBaseDir(), lessons);
+		return lesson;
 	}
 }

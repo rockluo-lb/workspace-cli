@@ -36,10 +36,8 @@ Jira-driven, step-based vibe coding workflow CLI.
 }
 ```
 
-By default the workspace state root is:
+By default the user state directory is `~/.vibe/`. Each repository lives under `~/.vibe/workspaces/...`, and shared conventions live in `~/.vibe/lessons.json`.
 
-- macOS: `~/Library/Application Support/vibe-cli/workspaces/...`
-- Linux: `~/.local/state/vibe-cli/workspaces/...`
-- Windows: `%APPDATA%/vibe-cli/workspaces/...`
+If `~/.vibe` does not exist yet and an older platform directory does, vibe keeps using that older directory until you create `~/.vibe` or move the old one there.
 
 You can override the base directory with `VIBE_STATE_ROOT`.

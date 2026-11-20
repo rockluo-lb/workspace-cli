@@ -197,6 +197,71 @@ describe('workflow integration', () => {
 		});
 	});
 
+	it('keeps handoff notes in the task log and withholds lessons until approved', async () => {
+		const rootDir = await createTempDir('vibe-workflow-memory-');
+		const stateBaseDir = await useTempStateRoot();
+		const stateRoot = resolveWorkspaceStateDir(rootDir, stateBaseDir);
+		await initGitRepo(rootDir);
+		const app = await createApp(rootDir);
+		await app.orchestrator.startTask('CRMCN-56');
+		await app.orchestrator.generatePlan('CRMCN-56', {
+			draft: {
+				decisions: [{ question: 'Keep pagination?', answer: 'Yes' }],
+				steps: [{ title: 'Edit list', expectedFiles: ['README.md'] }],
+			},
+		});
+
+		const handoff = await app.orchestrator.recordHandoff('CRMCN-56', 1, 'Edited the list view.');
+		expect(handoff.logPath.endsWith(path.join('tasks', 'CRMCN-56', 'logs', 'handoff.md'))).toBe(true);
+		expect(run('git', ['status', '--short'], rootDir)).toBe('');
+
+		const before = await fs.readFile(
+			(await app.orchestrator.buildBrief('CRMCN-56', { role: 'coding', stepId: 1 })).reportPath,
+			'utf8'
+		);
+		expect(before).toContain('Edited the list view.');
+		expect(before).toContain('Shared conventions');
+		expect(before).not.toContain('Keep pagination? → Yes');
+
+		await expect(app.orchestrator.learnTask('CRMCN-56')).rejects.toMatchObject({ code: 'TASK_NOT_VERIFIED' });
+
+		const progress = await app.taskStore.loadProgress('CRMCN-56');
+		if (!progress) {
+			throw new Error('missing progress');
+		}
+		progress.status = 'pr_ready';
+		await app.taskStore.saveProgress('CRMCN-56', progress);
+		const plan = await app.taskStore.loadPlan('CRMCN-56');
+		if (!plan) {
+			throw new Error('missing plan');
+		}
+		for (const step of plan.steps) {
+			step.status = 'committed';
+		}
+		await app.taskStore.savePlan('CRMCN-56', plan);
+
+		const learned = await app.orchestrator.learnTask('CRMCN-56');
+		expect(learned.created).toBeGreaterThan(0);
+		const decision = learned.pending.find((lesson) => lesson.text.includes('Keep pagination?'));
+		expect(decision?.status).toBe('pending');
+		expect(await fs.pathExists(path.join(stateBaseDir, 'lessons.json'))).toBe(true);
+		expect(await fs.pathExists(path.join(stateRoot, 'lessons.json'))).toBe(false);
+		expect(await fs.pathExists(path.join(rootDir, 'lessons.json'))).toBe(false);
+
+		if (!decision) {
+			throw new Error('missing decision lesson');
+		}
+		await app.orchestrator.setLessonStatus(decision.id, 'approved');
+		const after = await fs.readFile(
+			(await app.orchestrator.buildBrief('CRMCN-56', { role: 'coding', stepId: 1 })).reportPath,
+			'utf8'
+		);
+		expect(after).toContain('Keep pagination? → Yes');
+
+		const repeated = await app.orchestrator.learnTask('CRMCN-56');
+		expect(repeated.created).toBe(0);
+	});
+
 	it('stops a step when verification fails and can extend scope before commit', async () => {
 		const rootDir = await createTempDir('vibe-workflow-verify-');
 		await useTempStateRoot();

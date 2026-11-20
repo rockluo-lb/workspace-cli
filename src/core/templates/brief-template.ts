@@ -17,6 +17,8 @@ export interface BriefTemplateInput {
 	repoContext: RepoContext;
 	rules: ProjectRules;
 	notes: string[];
+	handoff: string;
+	lessons: string[];
 	contextPath: string;
 	diffRange: string;
 }
@@ -27,7 +29,7 @@ const REVIEW_CHECKLIST = `- No speculative abstraction: no interface, factory, m
 - No new dependency unless nothing existing can do the job
 - Scope: changes stay within the step's expected files
 - Single-file size: a code file this step created or grew past the line limit must be split when it has a clear boundary (self-contained sub-component, hook, utility, type group, constant table); otherwise state why it stays
-- Project rules below win over generic advice`;
+- Follow the shared conventions below. Project rules in this repo win when they conflict`;
 
 function roleCard(input: BriefTemplateInput): string {
 	const { role, issue, step, diffRange } = input;
@@ -35,9 +37,11 @@ function roleCard(input: BriefTemplateInput): string {
 	if (role === 'coding' && step) {
 		return `You are the coding sub-agent for ${key} step ${step.id}. This brief replaces \`vibe skill\` and \`context.md\`: do not run \`vibe skill\`, and do not read other skills or rule files unless a rule listed under "Read on demand" applies to your change.
 
+- Follow the shared conventions in this brief. A decision recorded for this task wins when it conflicts, and so does a project rule
 - Change only what step ${step.id} needs, within the expected files
 - When done, run \`vibe code ${key} --step ${step.id}\`. It lints the files you changed. On \`VERIFY_FAILED\`, fix and rerun
-- Do not run typecheck, tests, build, \`vibe code-review\`, \`vibe commit\`, or any git write command
+- After the check passes, run \`vibe handoff ${key} --step ${step.id} --text "<what changed, key files, anything left>"\`. This writes the task log only. Do not commit it
+- Do not run typecheck, tests, build, \`vibe code-review\`, \`vibe commit\`, \`vibe learn\`, or any git write command
 - Look up library docs (context7 / WebSearch) only for an API this repo does not use yet
 - Return: the changed files, the \`vibe code\` result, and open questions (do not guess on them)`;
 	}
@@ -82,7 +86,7 @@ function renderRules(rules: ProjectRules): string {
 }
 
 export function renderBrief(input: BriefTemplateInput): string {
-	const { role, issue, plan, step, links, repoContext, rules, notes, contextPath } = input;
+	const { role, issue, plan, step, links, repoContext, rules, notes, handoff, lessons, contextPath } = input;
 	const title = step ? `${role} brief: ${issue.key} step ${step.id}` : `${role} brief: ${issue.key}`;
 	const criteria = issue.acceptanceCriteria.map((item) => `- ${item}`).join('\n') || '- _none_';
 	const decisions =
@@ -127,6 +131,18 @@ ${decisions}
 ## Lead notes
 
 ${notes.map((note) => `- ${note}`).join('\n') || '- _none_'}
+
+## Progress so far
+
+Local handoff notes from this task. They are not in git.
+
+${handoff || '- _none yet_'}
+
+## Shared conventions
+
+Approved lessons from finished tasks. They apply in every repo. Follow them. A decision recorded for this task still wins when it conflicts.
+
+${lessons.map((lesson) => `- ${lesson}`).join('\n') || '- _none_'}
 
 ## Project rules
 

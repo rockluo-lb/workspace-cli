@@ -108,9 +108,10 @@ Before each dispatch, the lead runs `vibe brief <JIRA_KEY> --role coding --step 
    - reads only its brief; it opens `context.md` or an on-demand rule only when the brief says the step needs it
    - makes the code changes for step N only
    - runs `vibe code <JIRA_KEY> --step N`, which lints only the files this step changed (see `vibe code`). On `VERIFY_FAILED`, fixes the code and runs it again
+   - after the check passes, runs `vibe handoff <JIRA_KEY> --step N --text "<what changed, key files, anything left>"`. The note is appended under the task's `logs/handoff.md` in the workspace state directory and is never a git commit
    - does not run typecheck, tests, or build; those run once in the verification phase
-   - does not run `vibe commit`
-   - returns the changed files and the verify result
+   - does not run `vibe commit` or `vibe learn`
+   - returns the changed files, the verify result, and the handoff path
 2. **Lead commit**
    - once `vibe code` has passed, the lead runs `vibe commit <JIRA_KEY> --step N` and moves to step N+1
 
@@ -407,7 +408,29 @@ vibe brief PROJ-123 --role branch-review
 **Key behaviors:**
 - `--role` is `coding` (default) or `branch-review`; `coding` needs `--step`, otherwise it fails with `STEP_NOT_FOUND`
 - Saves `step-<N>-<role>-brief.md` or `branch-review-brief.md` under `reports/` and returns its `reportPath` and the applied rule files
-- Rerun it after `vibe scope`, `vibe plan --from`, or a review round, so the brief matches the current step
+- Includes this task's handoff notes and up to 8 approved shared conventions. Pending lessons are left out
+
+---
+
+### `vibe handoff <JIRA_KEY> --step <N> --text <text>`
+
+**Purpose:** Run by the coding sub-agent after `vibe code` passes. Appends the note to `<state dir>/tasks/<JIRA_KEY>/logs/handoff.md`.
+
+The file is outside the repository. Do not `git add` it.
+
+---
+
+### `vibe learn <JIRA_KEY>`
+
+**Purpose:** Run by the lead only after `vibe verify` has passed (`pr_ready`). Suggests lessons and stores them in `~/.vibe/lessons.json` with status `pending`. This file is shared by every repo, not kept inside one workspace directory.
+
+Fails with `TASK_NOT_VERIFIED` before that. A repeated run merges evidence into an existing lesson instead of adding a duplicate. A rejected lesson stays rejected.
+
+### `vibe memory`
+
+Lists every lesson. `vibe memory approve --id <id>` makes it a shared convention for later briefs in every repo. `vibe memory reject --id <id>` keeps it out. A decision recorded on the current task, and a project rule, win when they conflict with a shared convention.
+
+Rerun `vibe brief` after `vibe scope`, `vibe plan --from`, `vibe handoff`, or an approved lesson, so the brief matches the current step.
 
 ---
 
@@ -699,22 +722,21 @@ After the last step:
 
 **After the PR draft is generated, STOP.** Do not push the branch or create the PR. Present the draft to the user and wait for their explicit review/approval before performing any `git push` / PR creation.
 
+When the task is `pr_ready`, the lead may run `vibe learn <JIRA_KEY>` once. It suggests shared conventions from the plan decisions, committed files, and handoff notes, and leaves them pending in `~/.vibe/lessons.json`. Do not run it earlier, and do not approve lessons inside the coding loop. The user reviews them with `vibe memory`, then `vibe memory approve --id <id>` or `vibe memory reject --id <id>`. Approved lessons become conventions for every later brief, in every repo.
+
 ---
 
 ## State Management
 
-Vibe-cli keeps all state outside the repository, in a per-workspace state directory:
+Vibe-cli keeps all state outside the repository. The user state directory is `~/.vibe/` on every platform. Shared conventions live at `~/.vibe/lessons.json`. Each repository has its own directory under that:
 
-| Platform | Workspace state directory |
-|----------|---------------------------|
-| macOS | `~/Library/Application Support/vibe-cli/workspaces/<repo>-<hash>/` |
-| Linux | `${XDG_STATE_HOME:-~/.local/state}/vibe-cli/workspaces/<repo>-<hash>/` |
-| Windows | `%APPDATA%\vibe-cli\workspaces\<repo>-<hash>\` |
+`~/.vibe/workspaces/<repo>-<hash>/`
 
 - `<repo>` is the lowercased repository folder name; `<hash>` is the first 12 hex characters of the SHA-1 of the repository's absolute path
-- Setting `VIBE_STATE_ROOT` replaces `.../vibe-cli` with that directory
-- The fastest way to find it: every `vibe context`, `vibe plan`, `vibe review`, and `vibe code-review` result prints a `reportPath` inside `<state dir>/tasks/<JIRA_KEY>/`
-- The repository's `.vibe/` directory is legacy and no longer used
+- Setting `VIBE_STATE_ROOT` replaces `~/.vibe` with that directory
+- If `~/.vibe` does not exist yet and the previous platform directory does, vibe keeps using that previous directory. Create `~/.vibe` (or move the old directory there) to switch. The previous directories are `~/Library/Application Support/vibe-cli` on macOS, `${XDG_STATE_HOME:-~/.local/state}/vibe-cli` on Linux, and `%APPDATA%\vibe-cli` on Windows
+- The fastest way to find a task: every `vibe context`, `vibe plan`, `vibe review`, and `vibe code-review` result prints a `reportPath` inside `<state dir>/tasks/<JIRA_KEY>/`
+- A `.vibe/` directory inside a repository is legacy and no longer used. It is not `~/.vibe`
 
 The workspace config is `<state dir>/config.json`. Each task lives in `<state dir>/tasks/<JIRA_KEY>/`:
 
